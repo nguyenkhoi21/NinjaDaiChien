@@ -12,6 +12,7 @@ if (typeof SVRCMD === 'undefined') {
  */
 
 const http = require('http');
+const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +21,10 @@ const PORT = process.env.PORT || 8088;
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'players.json');
 
+// Read from Environment Variables (set in Render Dashboard)
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.SUPABASE_KEY || "";
+
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // Global in-memory player database
@@ -27,22 +32,132 @@ let playerDb = {};
 if (fs.existsSync(DATA_FILE)) {
     try {
         playerDb = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-        console.log(`[+] Loaded ${Object.keys(playerDb).length} players from ${DATA_FILE}`);
+        console.log(`[+] Loaded ${Object.keys(playerDb).length} players from local cache ${DATA_FILE}`);
     } catch (e) {
         console.error('[-] Error reading players.json, starting fresh:', e.message);
     }
 }
 
-function saveDb() {
+function saveLocalDb() {
     try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(playerDb, null, 2), 'utf-8');
     } catch (e) {
-        console.error('[-] Error saving database:', e.message);
+        console.error('[-] Error saving local database:', e.message);
     }
 }
 
-// Periodic auto-save every 30 seconds
-setInterval(saveDb, 30000);
+// Helper: HTTP request to Supabase PostgREST API
+function supabaseRequest(apiPath, method, body, callback) {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        if (callback) callback(new Error("Supabase credentials not configured in process.env"));
+        return;
+    }
+    try {
+        const urlObj = new URL(SUPABASE_URL + apiPath);
+        const reqData = body ? JSON.stringify(body) : null;
+        const options = {
+            hostname: urlObj.hostname,
+            port: 443,
+            path: urlObj.pathname + urlObj.search,
+            method: method || 'GET',
+            headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': 'Bearer ' + SUPABASE_KEY,
+                'Content-Type': 'application/json',
+                'Prefer': 'resolution=merge-duplicates'
+            }
+        };
+        if (reqData) {
+            options.headers['Content-Length'] = Buffer.byteLength(reqData);
+        }
+        const req = https.request(options, (res) => {
+            let resData = '';
+            res.on('data', chunk => resData += chunk);
+            res.on('end', () => {
+                if (callback) {
+                    try {
+                        const json = resData ? JSON.parse(resData) : null;
+                        callback(null, json, res.statusCode);
+                    } catch (e) {
+                        callback(null, resData, res.statusCode);
+                    }
+                }
+            });
+        });
+        req.on('error', err => {
+            console.error('[-] Supabase error:', err.message);
+            if (callback) callback(err);
+        });
+        if (reqData) req.write(reqData);
+        req.end();
+    } catch (e) {
+        console.error('[-] Supabase request exception:', e.message);
+        if (callback) callback(e);
+    }
+}
+
+// Load all players on startup from Supabase if configured
+function loadDbFromSupabase() {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        console.log('[*] SUPABASE_URL / SUPABASE_KEY not provided. Running in local storage mode.');
+        return;
+    }
+    console.log('[*] Connecting to Supabase at ' + SUPABASE_URL + ' ...');
+    supabaseRequest('/rest/v1/players?select=player_id,data', 'GET', null, (err, rows, status) => {
+        if (!err && Array.isArray(rows)) {
+            let count = 0;
+            for (const row of rows) {
+                if (row.player_id && row.data) {
+                    playerDb[String(row.player_id)] = row.data;
+                    count++;
+                }
+            }
+            console.log(`[+] Successfully synchronized ${count} players from Supabase!`);
+            saveLocalDb();
+        } else {
+            console.error('[-] Could not load from Supabase (status ' + status + '):', err ? err.message : rows);
+        }
+    });
+}
+loadDbFromSupabase();
+
+const dirtyPlayers = new Set();
+function markDirty(playerId) {
+    if (playerId) dirtyPlayers.add(String(playerId));
+}
+
+function flushDirtyToSupabase() {
+    if (!SUPABASE_URL || !SUPABASE_KEY || dirtyPlayers.size === 0) return;
+    const batch = [];
+    for (const pid of dirtyPlayers) {
+        if (playerDb[pid]) {
+            batch.push({
+                player_id: String(pid),
+                data: playerDb[pid],
+                updated_at: new Date().toISOString()
+            });
+        }
+    }
+    dirtyPlayers.clear();
+    if (batch.length === 0) return;
+
+    supabaseRequest('/rest/v1/players', 'POST', batch, (err, res, status) => {
+        if (!err && (status === 201 || status === 200 || status === 204)) {
+            console.log(`[+] Synced ${batch.length} player save(s) to Supabase Cloud.`);
+        } else {
+            console.error(`[-] Failed to sync to Supabase (status ${status}):`, err ? err.message : res);
+            for (const item of batch) dirtyPlayers.add(item.player_id);
+        }
+    });
+}
+
+function saveDb() {
+    saveLocalDb();
+    flushDirtyToSupabase();
+}
+
+// Periodic auto-save every 10 seconds
+setInterval(saveDb, 10000);
 
 // Active WebSocket connections
 const connectedSockets = new Set();
@@ -875,13 +990,14 @@ var OfflineServer = {
         }
         if (cmd === SVRCMD.PlayerInfo) {
             var nowSec = Math.floor(Date.now() / 1000);
+            var pIdNum = parseInt(this.data.player_id, 10) || 1;
             respond({
                 player: {
-                    id: 1,
-                    user_id: 1,
-                    user_name: "Shinobi",
-                    platform: "offline",
-                    create_time: nowSec - 86400,
+                    id: pIdNum,
+                    user_id: pIdNum,
+                    user_name: this.data.team_name || "Nhẫn Giả",
+                    platform: "ninja",
+                    create_time: this.data.create_time || (nowSec - 86400),
                     last_signin_time: nowSec,
                     last_signin_ip: "127.0.0.1",
                     avatar_frame_ids: [801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811]
@@ -4604,7 +4720,10 @@ class PlayerSession {
     }
 
     handle(cmd, params) {
-        if (!this.server.data) {
+        if (cmd === "Login" || (typeof SVRCMD !== "undefined" && cmd === SVRCMD.Login)) {
+            var uid = (params && params[0]) ? String(params[0]) : "1";
+            this.initPlayer(uid, "Player_" + uid);
+        } else if (!this.server.data) {
             this.initPlayer(this.playerId, this.username);
         }
 
@@ -4650,6 +4769,7 @@ class PlayerSession {
                 this.sendPacket(q.func_name, q.data);
             }
             this.sendPacket(cmd, respData);
+            markDirty(this.playerId);
             saveDb();
         };
 
