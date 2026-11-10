@@ -4700,6 +4700,96 @@ var OfflineServer = {
             return true;
         }
 
+        // ===== Auto-added handlers for previously unhandled client commands =====
+        var nowTs = Math.floor(Date.now() / 1000);
+        var notOpen = { code: 1, msg: "Tính năng này chưa mở trên máy chủ!" };
+        var noFight = { code: 1, msg: "Không có dữ liệu trận đấu để xem lại!" };
+
+        if (cmd === "GoodsInfo") {
+            var gIds = String((params && params[0]) || "1001;1002;1003;1004;1005;1006;1007");
+            var buys = this.data.goods_buy_count || {};
+            respond({ goodsId: gIds, buyCount: gIds.split(";").map(function(id) { return Number(buys[id] || 0); }).join(",") });
+            return true;
+        }
+        if (cmd === "CreateOrder") {
+            respond({ orderId: "NR" + Date.now() + Math.floor(Math.random() * 1000) });
+            return true;
+        }
+        if (cmd === "Goods2Crit") { respond({ status: 1 }); return true; }
+        if (cmd === "BuyWorldChatCount") {
+            var chatCost = 20;
+            if (!this.deductStone(chatCost)) return respond({}, { code: 1, msg: "Không đủ Kim Cương!" });
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            respond({ value: 10 });
+            return true;
+        }
+        if (cmd === "SendLatern") { respond({ status: 1 }); return true; }
+        if (cmd === "ReadMessage") { respond({ status: 1, id: params && params[0] }); return true; }
+        if (cmd === "ReceiveWorship") {
+            this.data.gold = Number(this.data.gold || 0) + 50000;
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            respond({ gold: 50000 });
+            return true;
+        }
+
+        // Guild management
+        if (cmd === "SearchGroup") {
+            var q = String((params && params[0]) || "");
+            var allG = [
+                { id: 1, name: "Làng Lá", level: 5, icon: 20806, capacity: 30, size: 18, min_lv: 30, president_name: "Naruto", notice: "Kế thừa Hỏa Chí!" },
+                { id: 2, name: "Akatsuki", level: 6, icon: 20002, capacity: 30, size: 24, min_lv: 40, president_name: "Pain", notice: "Thế giới sẽ biết nỗi đau." },
+                { id: 3, name: "Uchiha Clan", level: 4, icon: 20003, capacity: 30, size: 15, min_lv: 30, president_name: "Itachi", notice: "Gia tộc Uchiha chiêu mộ." }
+            ];
+            respond({ groups: allG.filter(function(g) { return String(g.id) === q || g.name.indexOf(q) >= 0; }), logs: [] });
+            return true;
+        }
+        if (cmd === "CancelApplyGroup" || cmd === "AduitGroupApplyLog" || cmd === "SetGroupRole" ||
+            cmd === "TransferBoss" || cmd === "ExtendGroupBoss") {
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "SetGroupNotice") {
+            this.data.group_notice = String((params && params[0]) || "");
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GroupEventLogs") { respond({ logs: [], hires: [] }); return true; }
+        if (cmd === "GetGroupInfo") {
+            respond({ group: { id: Number(this.data.group_id || 1), name: this.data.group_name || "Làng Lá", level: Number(this.data.group_level || 1), icon: Number(this.data.group_icon || 20806), point: 0, rank: 0 } });
+            return true;
+        }
+
+        // Treasure / mineral
+        if (cmd === "HeroRecall" || cmd === "ResetTreasureLinneup") { respond({ status: 1 }); return true; }
+
+        // Guild war & cross guild war: status/rank views return empty, actions report "not open"
+        if (cmd === "CsGroupFightStatus") { respond({ status: 4, change_time: nowTs + 86400 }); return true; }
+        if (cmd === "GroupRank" || cmd === "CsGroupRank" || cmd === "CsGroupSeasonRank") { respond({ groups: [] }); return true; }
+        if (cmd === "GroupFightHistorys" || cmd === "CsGroupFightHistorys") { respond({ history: [] }); return true; }
+        if (cmd === "HireStatus") { respond({ hireStatus: 0 }); return true; }
+        if (cmd === "HireStatusInfo") { respond({ hireStatus: 0, hires: [] }); return true; }
+        if (cmd === "CsGetGroupLinuUp") {
+            respond({ status: 4, change_time: nowTs + 86400, lineup: { heros: "[]", def_heros: "[]" } });
+            return true;
+        }
+        if (["Registration", "CsRegistration", "GroupFightInfo", "CsGroupFightInfo", "BattleInfo", "CsBattleInfo",
+             "DynamicBattleInfo", "CsDynamicBattleInfo", "OpponentInfo", "CsOpponentInfo", "GetGroupFighter",
+             "CsGetGroupFighter", "GetHeroLineup", "CsGetHeroLineup", "AfterGroupFight", "CsAfterGroupFight",
+             "CsSetGroupFightLineup", "CrossClearArenaFightCD", "CrossClearDarkArenaFightCD"].indexOf(cmd) >= 0) {
+            respond({}, notOpen);
+            return true;
+        }
+        // Battle replays: no stored fight data -> clean error instead of client crash
+        if (["GetChatFightData", "GroupFightHistoryInfo", "CsGroupFightHistoryInfo", "CrossArenaFightHistoryInfo",
+             "CrossDarkArenaFightHistoryInfo", "PlunderHistoryInfo"].indexOf(cmd) >= 0) {
+            respond({}, noFight);
+            return true;
+        }
+
+        // GM debug commands
+        if (cmd === "GMAddGold") { this.data.gold = Number(this.data.gold || 0) + Number((params && params[0]) || 1000000); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
+        if (cmd === "GMAddTeamExp") { this.data.team_exp = Number(this.data.team_exp || 0) + Number((params && params[0]) || 1000); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
+
                 respond({ status: 1 });
         return true;
     }
@@ -4782,16 +4872,64 @@ class PlayerSession {
             return;
         }
 
+        // ---- Multiplayer-aware commands (need access to other players) ----
+        const d = this.server.data;
+        const findByName = (name) => {
+            for (const pid in playerDb) {
+                if (playerDb[pid] && playerDb[pid].team_name === name) return pid;
+            }
+            return null;
+        };
+        if (cmd === "GetPlayerId") {
+            const pid = findByName(String((params && params[0]) || ""));
+            if (!pid) return this.sendPacket(cmd, {}, { code: 1, msg: "Không tìm thấy người chơi này!" });
+            return this.sendPacket(cmd, { playerId: pid });
+        }
+        if (cmd === "GetPlayerInfo") {
+            const t = playerDb[String((params && params[0]) || "")] || {};
+            return this.sendPacket(cmd, {
+                group_name: t.group_id ? (t.group_name || "") : "",
+                player_id: String((params && params[0]) || ""),
+                player_name: t.team_name || "",
+                player_lv: Number(t.team_lv || 1),
+                player_vip: Number(t.vip_lv || 0),
+                player_icon: Number(t.icon || 10010)
+            });
+        }
+        if (cmd === "AddBlack") {
+            if (!Array.isArray(d.blacks)) d.blacks = [];
+            const tid = String((params && params[0]) || "");
+            if (tid && !d.blacks.some(b => String(b.target_id) === tid)) {
+                d.blacks.push({
+                    target_id: tid,
+                    icon: Number((params && params[1]) || 10010),
+                    lv: Number((params && params[2]) || 1),
+                    name: String((params && params[3]) || "")
+                });
+            }
+            markDirty(this.playerId); saveDb();
+            return this.sendPacket(cmd, { status: 1 });
+        }
+        if (cmd === "RemoveFromBlack") {
+            const tid = String((params && params[0]) || "");
+            d.blacks = (d.blacks || []).filter(b => String(b.target_id) !== tid);
+            markDirty(this.playerId); saveDb();
+            return this.sendPacket(cmd, { status: 1 });
+        }
+        if (cmd === "BlackList") {
+            return this.sendPacket(cmd, { blacks: d.blacks || [] });
+        }
+
         const queue = [];
         const queuePush = (pushCmd, pushData) => {
             queue.push({ func_name: pushCmd, data: pushData });
         };
 
-        const respond = (respData) => {
+        const respond = (respData, err) => {
             for (const q of queue) {
                 this.sendPacket(q.func_name, q.data);
             }
-            this.sendPacket(cmd, respData);
+            this.sendPacket(cmd, respData, err);
             markDirty(this.playerId);
             saveDb();
         };
