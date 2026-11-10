@@ -262,12 +262,16 @@ var OfflineServer = {
     },
 
     loadSave: function() {
-        var str = cc.sys.localStorage.getItem(this.saveKey);
-        if (str) {
-            try {
-                this.data = JSON.parse(str);
-            } catch(e) {
-                this.data = null;
+        if (!this.data) {
+            if (typeof cc !== "undefined" && cc.sys && cc.sys.localStorage) {
+                var str = cc.sys.localStorage.getItem(this.saveKey);
+                if (str) {
+                    try {
+                        this.data = JSON.parse(str);
+                    } catch(e) {
+                        this.data = null;
+                    }
+                }
             }
         }
         if (!this.data) {
@@ -334,7 +338,9 @@ var OfflineServer = {
         if (!this._dirty || !this.data) return;
         this._dirty = false;
         try {
-            cc.sys.localStorage.setItem(this.saveKey, JSON.stringify(this.data));
+            if (typeof cc !== "undefined" && cc.sys && cc.sys.localStorage) {
+                cc.sys.localStorage.setItem(this.saveKey, JSON.stringify(this.data));
+            }
         } catch(e) {}
     },
 
@@ -933,7 +939,7 @@ var OfflineServer = {
         return results;
     },
 
-    handle: function(cmd, params) {
+    handle: function(cmd, params, extRespond, extQueuePush) {
         var self = this;
         this.loadSave();
         this.logPacket("OFFLINE_REQ", cmd, params);
@@ -958,16 +964,33 @@ var OfflineServer = {
                 "error": err || null
             };
             self.logPacket("OFFLINE_RES", cmd, pkg.data);
-            if (cmd === SVRCMD.Time) {
-                Cache.setServerTime(pkg.data);
-                Game.lastHeartBeat = Cache.getServerTime();
-            }
-            self.scheduleLater(function() {
-                for (var i = 0; i < pendingPushes.length; i++) {
-                    EventDispatcher.shared().dispatchEvent(pendingPushes[i].cmd, pendingPushes[i].pkg);
+
+            if (typeof extRespond === "function") {
+                if (typeof extQueuePush === "function") {
+                    for (var i = 0; i < pendingPushes.length; i++) {
+                        extQueuePush(pendingPushes[i].cmd, pendingPushes[i].pkg.data);
+                    }
                 }
-                EventDispatcher.shared().dispatchEvent(cmd, pkg);
-            }, 0.01);
+                extRespond(data, err);
+                return;
+            }
+
+            if (cmd === SVRCMD.Time) {
+                if (typeof Cache !== "undefined" && Cache.setServerTime) {
+                    Cache.setServerTime(pkg.data);
+                }
+                if (typeof Game !== "undefined" && typeof Cache !== "undefined" && Cache.getServerTime) {
+                    Game.lastHeartBeat = Cache.getServerTime();
+                }
+            }
+            if (typeof EventDispatcher !== "undefined" && EventDispatcher.shared) {
+                self.scheduleLater(function() {
+                    for (var i = 0; i < pendingPushes.length; i++) {
+                        EventDispatcher.shared().dispatchEvent(pendingPushes[i].cmd, pendingPushes[i].pkg);
+                    }
+                    EventDispatcher.shared().dispatchEvent(cmd, pkg);
+                }, 0.01);
+            }
         };
 
         // 1. Server Time & Login
@@ -4808,7 +4831,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
             status: "online",
             game: "Ninja Rebirth",
-            version: "1.0.4.99-fixed",
+            version: "1.0.4.100-loginfix",
             build: "railway-ready",
             online_players: connectedSockets.size,
             registered_players: Object.keys(playerDb).length,
