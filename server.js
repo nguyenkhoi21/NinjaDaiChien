@@ -4808,7 +4808,8 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
             status: "online",
             game: "Ninja Rebirth",
-            version: "1.0.4.63",
+            version: "1.0.4.99-fixed",
+            build: "railway-ready",
             online_players: connectedSockets.size,
             registered_players: Object.keys(playerDb).length,
             uptime_seconds: Math.floor(process.uptime())
@@ -4852,7 +4853,6 @@ server.on('upgrade', (req, socket, head) => {
         `Sec-WebSocket-Accept: ${acceptKey}\r\n\r\n`
     );
 
-    socket.readyState = 1;
     connectedSockets.add(socket);
     console.log(`[+] Client connected from ${req.socket.remoteAddress}. Total online: ${connectedSockets.size}`);
 
@@ -4861,7 +4861,7 @@ server.on('upgrade', (req, socket, head) => {
     // Initial greeting / Connected event
     session.sendPacket("Connected", { status: 1 });
 
-    let buffer = Buffer.alloc(0);
+    let buffer = (head && head.length) ? Buffer.from(head) : Buffer.alloc(0);
 
     socket.on('data', (chunk) => {
         buffer = Buffer.concat([buffer, chunk]);
