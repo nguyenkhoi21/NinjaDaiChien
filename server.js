@@ -159,6 +159,44 @@ function saveDb() {
 // Periodic auto-save every 10 seconds
 setInterval(saveDb, 10000);
 
+// Persistent unique numeric UID allocator & lookup helpers
+let nextNumericUid = 10001;
+function getOrAssignUid(accountKey, dataObj) {
+    if (dataObj && dataObj.uid && Number(dataObj.uid) > 0) {
+        if (Number(dataObj.uid) >= nextNumericUid) {
+            nextNumericUid = Number(dataObj.uid) + 1;
+        }
+        return Number(dataObj.uid);
+    }
+    const parsed = parseInt(accountKey, 10);
+    if (!isNaN(parsed) && String(parsed) === String(accountKey) && parsed > 0) {
+        if (dataObj) dataObj.uid = parsed;
+        if (parsed >= nextNumericUid) nextNumericUid = parsed + 1;
+        return parsed;
+    }
+    for (const k in playerDb) {
+        const u = Number(playerDb[k] && playerDb[k].uid);
+        if (u >= nextNumericUid) nextNumericUid = u + 1;
+    }
+    const assigned = nextNumericUid++;
+    if (dataObj) dataObj.uid = assigned;
+    return assigned;
+}
+
+function findPlayerByIdOrUid(idOrKey) {
+    const s = String(idOrKey || "");
+    if (playerDb[s]) return { key: s, data: playerDb[s] };
+    const n = Number(idOrKey);
+    for (const k in playerDb) {
+        const d = playerDb[k];
+        if (!d) continue;
+        if ((n > 0 && Number(d.uid) === n) || d.team_name === s) {
+            return { key: k, data: d };
+        }
+    }
+    return null;
+}
+
 // Active WebSocket connections
 const connectedSockets = new Set();
 
@@ -170,6 +208,10 @@ var OfflineServer = {
     data: null,
 
     // === V14 SAFE DEDUCTION HELPERS ===
+    getNumericId: function() {
+        if (this.data && this.data.uid) return Number(this.data.uid);
+        return getOrAssignUid((this.data && this.data.player_id) || "1", this.data);
+    },
     canDeductGold: function(cost) {
         return Number(this.data.gold || 0) >= Number(cost || 0);
     },
@@ -1013,7 +1055,7 @@ var OfflineServer = {
         }
         if (cmd === SVRCMD.PlayerInfo) {
             var nowSec = Math.floor(Date.now() / 1000);
-            var pIdNum = parseInt(this.data.player_id, 10) || 1;
+            var pIdNum = this.getNumericId();
             respond({
                 player: {
                     id: pIdNum,
@@ -1843,7 +1885,7 @@ var OfflineServer = {
         if (cmd === SVRCMD.GetAllEventsProcess || cmd === SVRCMD.GetEventProcess) {
             var pList = [];
             var evGroups2 = this.onlineEvents || [];
-            var myPid = (typeof gamePlayer !== "undefined" && gamePlayer.id) ? Number(gamePlayer.id) : 1;
+            var myPid = this.getNumericId();
             for (var gi2 = 0; gi2 < evGroups2.length; gi2++) {
                 var grp2 = evGroups2[gi2];
                 if (!grp2) continue;
@@ -2945,7 +2987,7 @@ var OfflineServer = {
                     enemyHeros.push(eh);
                 }
                 this.data.tower_layers[reqLayer] = {
-                    player_id: 1,
+                    player_id: this.getNumericId(),
                     layer: reqLayer,
                     has_pass: 0,
                     player_icon: 80110010,
@@ -2962,7 +3004,7 @@ var OfflineServer = {
                 max: 35,
                 refreshTime: 86400,
                 tower: {
-                    player_id: 1,
+                    player_id: this.getNumericId(),
                     create_time: nowSec - 3600,
                     cur_layer: curLayer,
                     heros: JSON.stringify(this.data.tower_heros || {})
@@ -3000,7 +3042,7 @@ var OfflineServer = {
                     });
                 }
                 this.data.tower_layers[targetLayer] = {
-                    player_id: 1,
+                    player_id: this.getNumericId(),
                     layer: targetLayer,
                     has_pass: 1,
                     player_name: "Thủ Vệ Tầng " + targetLayer,
@@ -3433,7 +3475,7 @@ var OfflineServer = {
                 day: "2026-11-03",
                 revision: 1,
                 ranks: [
-                    { rank: 1, fighter_id: 1, player_id: 1, player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 80110070), fight_value: 15000, win_count: 5, def_heros: botDef }
+                    { rank: 1, fighter_id: this.getNumericId(), player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 80110070), fight_value: 15000, win_count: 5, def_heros: botDef }
                 ],
                 history: []
             });
@@ -3452,8 +3494,8 @@ var OfflineServer = {
                     win_count: 15,
                     player_lv: Number(this.data.team_lv || 1),
                     player_name: this.data.team_name || "Nhẫn Giả",
-                    player_id: 1,
-                    fighter_id: 1,
+                    player_id: this.getNumericId(),
+                    fighter_id: this.getNumericId(),
                     fight_value: 5000,
                     server_id: 1,
                     atk_heros: JSON.stringify(myHerosArr),
@@ -3544,7 +3586,7 @@ var OfflineServer = {
             var topRanks = [
                 { fighter_id: 18, player_id: 18, player_name: "Boo", player_lv: 102, icon: 4011040, rank: 1 },
                 { fighter_id: 38, player_id: 38, player_name: "Bá Khí", player_lv: 100, icon: 80110050, rank: 2 },
-                { fighter_id: 1, player_id: 1, player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 2010080), rank: Number(this.data.dark_arena_rank || 10) }
+                { fighter_id: this.getNumericId(), player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 2010080), rank: Number(this.data.dark_arena_rank || 10) }
             ];
             respond({ ranks: topRanks, logs: [] });
             return true;
@@ -3557,7 +3599,7 @@ var OfflineServer = {
                 history: [
                     {
                         id: 4453,
-                        atk_id: 1,
+                        atk_id: this.getNumericId(),
                         atk_name: this.data.team_name || "Nhẫn Giả",
                         atk_lv: Number(this.data.team_lv || 1),
                         atk_icon: Number(this.data.icon || 2010080),
@@ -3592,8 +3634,8 @@ var OfflineServer = {
                     win_count: 10,
                     player_lv: Number(this.data.team_lv || 1),
                     player_name: this.data.team_name || "Nhẫn Giả",
-                    player_id: 1,
-                    fighter_id: 1,
+                    player_id: this.getNumericId(),
+                    fighter_id: this.getNumericId(),
                     fight_value: 5000,
                     server_id: 1,
                     def_heros_1: defStr,
@@ -3805,7 +3847,7 @@ var OfflineServer = {
                 respond({
                     playerGroup: {
                         group_id: Number(this.data.group_id || 1),
-                        player_id: 1,
+                        player_id: this.getNumericId(),
                         role: Number(this.data.group_role || 1),
                         contribution: Number(this.data.group_contribution || 0)
                     },
@@ -3815,7 +3857,7 @@ var OfflineServer = {
                         level: Number(this.data.group_level || 1),
                         exp: Number(this.data.group_exp || 0),
                         notice: this.data.group_notice || "Chào mừng các Nhẫn Giả đến với Bang Hội!",
-                        president_id: Number(this.data.group_role === 1 ? 1 : 100),
+                        president_id: Number(this.data.group_role === 1 ? this.getNumericId() : 100),
                         created_at: 1793709061,
                         icon: Number(this.data.group_icon || 20806),
                         capacity: 30,
@@ -3859,7 +3901,7 @@ var OfflineServer = {
             respond({
                 playerGroup: {
                     group_id: 11,
-                    player_id: 1,
+                    player_id: this.getNumericId(),
                     role: 1,
                     contribution: 0
                 },
@@ -3869,7 +3911,7 @@ var OfflineServer = {
                     level: 1,
                     exp: 0,
                     notice: "",
-                    president_id: 1,
+                    president_id: this.getNumericId(),
                     created_at: Math.floor(Date.now() / 1000),
                     icon: this.data.group_icon,
                     capacity: 30,
@@ -3906,7 +3948,7 @@ var OfflineServer = {
         if (cmd === SVRCMD.GroupMembers) {
             var mems = [
                 {
-                    player_id: 1,
+                    player_id: this.getNumericId(),
                     team_name: this.data.team_name || "Nhẫn Giả",
                     team_lv: Number(this.data.team_lv || 1),
                     icon: Number(this.data.icon || 2010080),
@@ -4027,18 +4069,28 @@ var OfflineServer = {
             return true;
         }
         if (cmd === "GroupStatus") {
-            respond({ status: 0, cs_status: 0 });
+            respond({ status: Number(this.data.group_war_status !== undefined ? this.data.group_war_status : 1), cs_status: 1 });
             return true;
         }
         if (cmd === "GroupFightStatus") {
-            respond({ status: 4, change_time: Math.floor(Date.now() / 1000) + 86400 });
+            respond({ status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4), change_time: Math.floor(Date.now() / 1000) + 86400 });
             return true;
         }
         if (cmd === "GetGroupLinuUp") {
+            var defStr = JSON.stringify([
+                this.computeHeroPayload(10010),
+                this.createDefaultHeroRecord(10020),
+                this.createDefaultHeroRecord(10040)
+            ]);
             respond({
                 lineup: {
-                    heros: JSON.stringify([{ hero_id: 10010 }, { hero_id: 10020 }, { hero_id: 10030 }]),
-                    def_heros: JSON.stringify([{ hero_id: 10010, quality: 1, lv: 1 }, { hero_id: 10020, quality: 1, lv: 1 }, { hero_id: 10030, quality: 1, lv: 1 }])
+                    heros: defStr,
+                    def_heros: defStr,
+                    def_heros1: defStr,
+                    def_heros2: defStr,
+                    def_heros3: "",
+                    def_heros4: "",
+                    def_heros5: ""
                 }
             });
             return true;
@@ -4067,7 +4119,7 @@ var OfflineServer = {
                 can_pick: 0,
                 has_pick: 0,
                 hero_ids: (params && params[1]) ? String(params[1]) : "10010,10020,10030,10040,10050",
-                player_id: 1,
+                player_id: this.getNumericId(),
                 player_lv: Number(this.data.team_lv || 1),
                 player_name: this.data.team_name || "Nhẫn Giả",
                 player_icon: Number(this.data.icon || 2010080),
@@ -4202,7 +4254,7 @@ var OfflineServer = {
             var chatObj = {
                 id: cId,
                 source_server: 1,
-                player_id: 1,
+                player_id: this.getNumericId(),
                 player_name: this.data.team_name || "Nhẫn Giả",
                 player_icon: Number(this.data.icon || 2010080),
                 player_lv: Number(this.data.team_lv || 1),
@@ -4508,7 +4560,7 @@ var OfflineServer = {
         if (cmd === SVRCMD.CrossBossRank || cmd === "CrossBossRank") {
             respond({
                 ranks: [
-                    { rank: 1, player_id: 1, player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, total_damage: Number(this.data.cross_boss_damage || 134891733), team_lv: Number(this.data.team_lv || 100) },
+                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, total_damage: Number(this.data.cross_boss_damage || 134891733), team_lv: Number(this.data.team_lv || 100) },
                     { rank: 2, player_id: 2, player_name: "Chú thợ Điện", server_id: 1, icon: 81110901, total_damage: 125000000, team_lv: 95 },
                     { rank: 3, player_id: 3, player_name: "Sasuke Uchiha", server_id: 2, icon: 10020, total_damage: 110000000, team_lv: 92 }
                 ],
@@ -4534,7 +4586,7 @@ var OfflineServer = {
         if (cmd === SVRCMD.CrossArenaRank || cmd === "CrossArenaRank" || cmd === "CrossArenaAllRankInfo") {
             respond({
                 ranks: [
-                    { rank: 1, player_id: 1, player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, score: 2400, team_lv: Number(this.data.team_lv || 100) },
+                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, score: 2400, team_lv: Number(this.data.team_lv || 100) },
                     { rank: 2, player_id: 4520, player_name: "Madara", server_id: 2, icon: 11060, score: 2350, team_lv: 99 },
                     { rank: 3, player_id: 4521, player_name: "Hashirama", server_id: 1, icon: 11000, score: 2300, team_lv: 98 }
                 ]
@@ -4612,7 +4664,7 @@ var OfflineServer = {
         if (cmd === "CrossDarkArenaRank" || cmd === "CrossDarkArenaAllRankInfo") {
             respond({
                 ranks: [
-                    { rank: 1, player_id: 1, player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, score: 2100, team_lv: Number(this.data.team_lv || 100) },
+                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, score: 2100, team_lv: Number(this.data.team_lv || 100) },
                     { rank: 2, player_id: 734, player_name: "Obito Lục Đạo", server_id: 2, icon: 11050, score: 2050, team_lv: 98 }
                 ]
             });
@@ -4762,21 +4814,195 @@ var OfflineServer = {
         // Treasure / mineral
         if (cmd === "HeroRecall" || cmd === "ResetTreasureLinneup") { respond({ status: 1 }); return true; }
 
-        // Guild war & cross guild war: status/rank views return empty, actions report "not open"
-        if (cmd === "CsGroupFightStatus") { respond({ status: 4, change_time: nowTs + 86400 }); return true; }
-        if (cmd === "GroupRank" || cmd === "CsGroupRank" || cmd === "CsGroupSeasonRank") { respond({ groups: [] }); return true; }
-        if (cmd === "GroupFightHistorys" || cmd === "CsGroupFightHistorys") { respond({ history: [] }); return true; }
+        // Guild war & cross guild war: full interactive implementation
+        var gwDefStr = JSON.stringify([
+            this.computeHeroPayload(10010),
+            this.createDefaultHeroRecord(10020),
+            this.createDefaultHeroRecord(10040)
+        ]);
+        if (cmd === "CsGroupFightStatus") {
+            respond({ status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4), change_time: nowTs + 86400 });
+            return true;
+        }
+        if (cmd === "GroupRank" || cmd === "CsGroupRank" || cmd === "CsGroupSeasonRank") {
+            respond({
+                groups: [
+                    { id: 1, name: this.data.group_name || "Làng Lá", level: Number(this.data.group_level || 5), icon: Number(this.data.group_icon || 20806), point: Number(this.data.war_my_point || 1200), rank: 1, server_id: 1, president_name: this.data.team_name || "Nhẫn Giả" },
+                    { id: 2, name: "Akatsuki", level: 6, icon: 20002, point: 980, rank: 2, server_id: 2, president_name: "Pain" },
+                    { id: 3, name: "Uchiha Clan", level: 4, icon: 20003, point: 850, rank: 3, server_id: 1, president_name: "Itachi" }
+                ]
+            });
+            return true;
+        }
+        if (cmd === "GroupFightHistorys" || cmd === "CsGroupFightHistorys") {
+            respond({
+                history: [
+                    {
+                        id: 101,
+                        time: nowTs - 3600,
+                        atk_id: this.getNumericId(),
+                        atk_name: this.data.team_name || "Nhẫn Giả",
+                        atk_lv: Number(this.data.team_lv || 1),
+                        atk_icon: Number(this.data.icon || 2010080),
+                        atk_group_name: this.data.group_name || "Làng Lá",
+                        def_id: 201,
+                        def_name: "Pain Tendo",
+                        def_lv: 90,
+                        def_icon: 10050,
+                        def_group_name: "Akatsuki",
+                        is_win: 1,
+                        star: 3,
+                        point: 30
+                    }
+                ]
+            });
+            return true;
+        }
         if (cmd === "HireStatus") { respond({ hireStatus: 0 }); return true; }
         if (cmd === "HireStatusInfo") { respond({ hireStatus: 0, hires: [] }); return true; }
         if (cmd === "CsGetGroupLinuUp") {
-            respond({ status: 4, change_time: nowTs + 86400, lineup: { heros: "[]", def_heros: "[]" } });
+            respond({
+                status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4),
+                change_time: nowTs + 86400,
+                lineup: {
+                    heros: gwDefStr,
+                    def_heros: gwDefStr,
+                    def_heros1: gwDefStr,
+                    def_heros2: gwDefStr,
+                    def_heros3: "",
+                    def_heros4: "",
+                    def_heros5: ""
+                }
+            });
             return true;
         }
-        if (["Registration", "CsRegistration", "GroupFightInfo", "CsGroupFightInfo", "BattleInfo", "CsBattleInfo",
-             "DynamicBattleInfo", "CsDynamicBattleInfo", "OpponentInfo", "CsOpponentInfo", "GetGroupFighter",
-             "CsGetGroupFighter", "GetHeroLineup", "CsGetHeroLineup", "AfterGroupFight", "CsAfterGroupFight",
-             "CsSetGroupFightLineup", "CrossClearArenaFightCD", "CrossClearDarkArenaFightCD"].indexOf(cmd) >= 0) {
-            respond({}, notOpen);
+        if (cmd === "Registration" || cmd === "CsRegistration") {
+            this.data.group_war_status = 1;
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "CsSetGroupFightLineup") {
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GroupFightInfo" || cmd === "CsGroupFightInfo") {
+            respond({
+                status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4),
+                group: {
+                    id: Number(this.data.group_id || 1),
+                    name: this.data.group_name || "Làng Lá",
+                    icon: Number(this.data.group_icon || 20806),
+                    level: Number(this.data.group_level || 5),
+                    server_id: 1
+                },
+                opponent: [
+                    { player_id: this.getNumericId(), name: this.data.team_name || "Nhẫn Giả", lv: Number(this.data.team_lv || 80), icon: Number(this.data.icon || 2010080), role: Number(this.data.group_role || 1) },
+                    { player_id: 101, name: "Uchiha Sasuke", lv: 95, icon: 10020, role: 2 },
+                    { player_id: 102, name: "Haruno Sakura", lv: 92, icon: 10030, role: 3 },
+                    { player_id: 103, name: "Hatake Kakashi", lv: 98, icon: 10050, role: 4 }
+                ]
+            });
+            return true;
+        }
+        if (cmd === "OpponentInfo" || cmd === "CsOpponentInfo") {
+            respond({
+                status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4),
+                group: { id: 2, name: "Akatsuki", icon: 20002, level: 6, server_id: 2 },
+                opponent: [
+                    { player_id: 201, name: "Pain Tendo", lv: 95, icon: 10050, role: 1 },
+                    { player_id: 202, name: "Uchiha Itachi", lv: 94, icon: 11000, role: 2 },
+                    { player_id: 203, name: "Konan", lv: 90, icon: 10040, role: 3 },
+                    { player_id: 204, name: "Kisame", lv: 88, icon: 10020, role: 4 },
+                    { player_id: 205, name: "Deidara", lv: 86, icon: 10010, role: 4 },
+                    { player_id: 206, name: "Sasori", lv: 85, icon: 10070, role: 4 }
+                ]
+            });
+            return true;
+        }
+        if (cmd === "BattleInfo" || cmd === "CsBattleInfo") {
+            respond({
+                status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4),
+                point: { group_id: Number(this.data.group_id || 1), point: Number(this.data.war_my_point || 120) },
+                targetPoint: { group_id: 2, point: 80 },
+                lineupStatus: [
+                    { player_id: this.getNumericId(), star: 0, last_atk_time: 0 },
+                    { player_id: 101, star: 0, last_atk_time: 0 },
+                    { player_id: 102, star: 0, last_atk_time: 0 },
+                    { player_id: 103, star: 0, last_atk_time: 0 }
+                ],
+                targetLineupStatus: [
+                    { player_id: 201, star: 0, last_atk_time: 0 },
+                    { player_id: 202, star: 1, last_atk_time: 0 },
+                    { player_id: 203, star: 2, last_atk_time: 0 },
+                    { player_id: 204, star: 0, last_atk_time: 0 },
+                    { player_id: 205, star: 0, last_atk_time: 0 },
+                    { player_id: 206, star: 3, last_atk_time: 0 }
+                ],
+                hireStatus: {}
+            });
+            return true;
+        }
+        if (cmd === "DynamicBattleInfo" || cmd === "CsDynamicBattleInfo") {
+            respond({
+                pointInfo: [
+                    { group_id: Number(this.data.group_id || 1), point: Number(this.data.war_my_point || 120) },
+                    { group_id: 2, point: 80 }
+                ],
+                status: { group_id: 2, player_id: 201, star: 1, last_atk_time: 0 },
+                blacks: []
+            });
+            return true;
+        }
+        if (cmd === "GetGroupFighter" || cmd === "CsGetGroupFighter") {
+            respond({
+                status: Number(this.data.group_fight_status !== undefined ? this.data.group_fight_status : 4),
+                fighter: {
+                    player_id: this.getNumericId(),
+                    group_id: Number(this.data.group_id || 1),
+                    role: Number(this.data.group_role || 1),
+                    atk_count: Number(this.data.war_atk_count || 0),
+                    gold: Number(this.data.war_gold || 50000),
+                    group_point: Number(this.data.war_point || 100),
+                    hero_info: "",
+                    hire_info: "",
+                    hire_key: "",
+                    hire_hero: ""
+                }
+            });
+            return true;
+        }
+        if (cmd === "GetHeroLineup" || cmd === "CsGetHeroLineup") {
+            respond({
+                lineup: {
+                    heros: gwDefStr,
+                    def_heros: gwDefStr,
+                    def_heros1: gwDefStr,
+                    def_heros2: gwDefStr,
+                    def_heros3: "",
+                    def_heros4: "",
+                    def_heros5: ""
+                }
+            });
+            return true;
+        }
+        if (cmd === "AfterGroupFight" || cmd === "CsAfterGroupFight") {
+            this.data.gold = Number(this.data.gold || 0) + 100000;
+            this.data.group_point = Number(this.data.group_point || 0) + 200;
+            this.data.cs_group_point = Number(this.data.cs_group_point || 0) + 200;
+            this.data.war_my_point = Number(this.data.war_my_point || 120) + 30;
+            this.data.war_atk_count = Number(this.data.war_atk_count || 0) + 1;
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            respond({
+                result: 1,
+                isWin: 1,
+                useZip: false,
+                fightData: "",
+                fightDatas: []
+            });
+            return true;
+        }
+        if (cmd === "CrossClearArenaFightCD" || cmd === "CrossClearDarkArenaFightCD") {
+            respond({ status: 1 });
             return true;
         }
         // Battle replays: no stored fight data -> clean error instead of client crash
@@ -4786,9 +5012,95 @@ var OfflineServer = {
             return true;
         }
 
-        // GM debug commands
+        // GM & Debug Commands (Command.js)
         if (cmd === "GMAddGold") { this.data.gold = Number(this.data.gold || 0) + Number((params && params[0]) || 1000000); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
-        if (cmd === "GMAddTeamExp") { this.data.team_exp = Number(this.data.team_exp || 0) + Number((params && params[0]) || 1000); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
+        if (cmd === "GMAddStone") { this.data.stone = Number(this.data.stone || 0) + Number((params && params[0]) || 10000); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
+        if (cmd === "GMAddSp") { this.data.sp = Number(this.data.sp || 0) + Number((params && params[0]) || 500); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
+        if (cmd === "GMAddTeamExp") { this.addTeamExp(Number((params && params[0]) || 1000)); queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload()); respond({ status: 1 }); return true; }
+        if (cmd === "GMAddItem") {
+            var gmItemId = Number((params && params[0]) || 10030);
+            var gmItemAmt = Number((params && params[1]) || 100);
+            this.changeItemAmount(gmItemId, gmItemAmt, queuePush);
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMAddEquip") {
+            var gmEqId = Number((params && params[0]) || 20001);
+            var gmEqAmt = Number((params && params[1]) || 10);
+            if (gmEqId >= 30000) this.addSecretEquip(gmEqId, gmEqAmt, queuePush);
+            else this.changeEquipAmount(gmEqId, gmEqAmt, queuePush);
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMAddHero") {
+            var gmHeroId = Number((params && params[0]) || 10010);
+            this.addOrConvertHero(gmHeroId, queuePush);
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMAddHeroExp") {
+            var gmHid = Number((params && params[0]) || 10010);
+            var gmHexp = Number((params && params[1]) || 10000);
+            this.addHeroExp(gmHid, gmHexp);
+            if (this.data.heros && this.data.heros[gmHid]) {
+                queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(gmHid) });
+            }
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMRecharge") {
+            var gmAmt = Number((params && params[0]) || 100);
+            this.data.stone = Number(this.data.stone || 0) + gmAmt * 100;
+            this.data.vip_exp = Number(this.data.vip_exp || 0) + gmAmt * 10;
+            this.data.vip_lv = Math.min(15, Number(this.data.vip_lv || 0) + 1);
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMAddGroupResource") {
+            this.data.group_resource = Number(this.data.group_resource || 0) + Number((params && params[0]) || 10000);
+            respond({ status: 1, resource: this.data.group_resource });
+            return true;
+        }
+        if (cmd === "SetGroupFightStatus" || cmd === "GMSetGroupStatus") {
+            this.data.group_fight_status = Number((params && params[0]) || 4);
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMSetMyGroupStatus") {
+            this.data.group_war_status = Number((params && params[0]) || 1);
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMAddDarkArenaPoint" || cmd === "GMCalDarkArenaPoint") {
+            this.data.dark_arena_point = Number(this.data.dark_arena_point || 0) + Number((params && params[0]) || 1000);
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMClearSecret") {
+            this.data.secrets = [];
+            respond({ status: 1 });
+            return true;
+        }
+        if (cmd === "GMCompleteAllChapter") {
+            if (typeof Config !== "undefined" && Config.chapter) {
+                this.data.chapters = { "1": [], "2": [], "3": [], "16": [] };
+                for (var ck in Config.chapter) {
+                    var cObj = Config.chapter[ck];
+                    var cType = String(cObj.type || 1);
+                    if (!this.data.chapters[cType]) this.data.chapters[cType] = [];
+                    this.data.chapters[cType].push({ chapter_id: Number(ck), star: 3 });
+                }
+            }
+            respond({ status: 1, chapters: this.data.chapters });
+            return true;
+        }
+        if (["GMSetSkillCount", "GMOnDay", "GMResetTask", "GMResetSpecialChapter", "GMSendArenaReward",
+             "GMSendFiveStar", "ReloadBaseData", "Check_user", "Check_anysdk_user", "Check_vietnam_user", "FiveStar"].indexOf(cmd) >= 0) {
+            respond({ status: 1 });
+            return true;
+        }
 
                 respond({ status: 1 });
         return true;
@@ -4799,26 +5111,31 @@ var OfflineServer = {
 class PlayerSession {
     constructor(ws) {
         this.ws = ws;
-        this.playerId = 1;
+        this.playerId = "1";
         this.username = "Player_1";
+        this.hasLoggedIn = false;
         this.server = Object.create(OfflineServer);
         this.server.data = null;
     }
 
     initPlayer(playerId, username) {
-        this.playerId = playerId;
-        this.username = username || `Player_${playerId}`;
+        this.playerId = String(playerId || "1");
+        this.username = username || `${this.playerId}`;
         if (!playerDb[this.playerId]) {
             console.log(`[*] Creating new save data for Player ${this.playerId} (${this.username})...`);
             this.server.initDefaultData();
             this.server.ensureDataFields();
             this.server.data.player_id = this.playerId;
+            this.server.data.uid = getOrAssignUid(this.playerId, this.server.data);
             this.server.data.team_name = this.username;
             playerDb[this.playerId] = this.server.data;
+            markDirty(this.playerId);
+            saveDb();
         } else {
             console.log(`[*] Loading existing save data for Player ${this.playerId} (${this.username})...`);
             this.server.data = playerDb[this.playerId];
             this.server.ensureDataFields();
+            this.server.data.uid = getOrAssignUid(this.playerId, this.server.data);
         }
     }
 
@@ -4834,8 +5151,9 @@ class PlayerSession {
 
     handle(cmd, params) {
         if (cmd === "Login" || (typeof SVRCMD !== "undefined" && cmd === SVRCMD.Login)) {
+            this.hasLoggedIn = true;
             var uid = (params && params[0]) ? String(params[0]) : "1";
-            this.initPlayer(uid, "Player_" + uid);
+            this.initPlayer(uid, uid);
         } else if (!this.server.data) {
             this.initPlayer(this.playerId, this.username);
         }
@@ -4848,7 +5166,7 @@ class PlayerSession {
             var chatObj = {
                 id: cId,
                 source_server: 1,
-                player_id: this.playerId,
+                player_id: this.server.getNumericId(),
                 player_name: this.server.data.team_name || this.username,
                 player_icon: Number(this.server.data.icon || 2010080),
                 player_lv: Number(this.server.data.team_lv || 1),
@@ -4874,23 +5192,21 @@ class PlayerSession {
 
         // ---- Multiplayer-aware commands (need access to other players) ----
         const d = this.server.data;
-        const findByName = (name) => {
-            for (const pid in playerDb) {
-                if (playerDb[pid] && playerDb[pid].team_name === name) return pid;
-            }
-            return null;
-        };
         if (cmd === "GetPlayerId") {
-            const pid = findByName(String((params && params[0]) || ""));
-            if (!pid) return this.sendPacket(cmd, {}, { code: 1, msg: "Không tìm thấy người chơi này!" });
-            return this.sendPacket(cmd, { playerId: pid });
+            const found = findPlayerByIdOrUid(String((params && params[0]) || ""));
+            if (!found) return this.sendPacket(cmd, {}, { code: 1, msg: "Không tìm thấy người chơi này!" });
+            const targetUid = getOrAssignUid(found.key, found.data);
+            return this.sendPacket(cmd, { playerId: targetUid });
         }
         if (cmd === "GetPlayerInfo") {
-            const t = playerDb[String((params && params[0]) || "")] || {};
+            const qId = (params && params[0]) !== undefined ? params[0] : "";
+            const found = findPlayerByIdOrUid(qId);
+            const t = found ? found.data : {};
+            const tUid = found ? getOrAssignUid(found.key, found.data) : Number(qId || 0);
             return this.sendPacket(cmd, {
                 group_name: t.group_id ? (t.group_name || "") : "",
-                player_id: String((params && params[0]) || ""),
-                player_name: t.team_name || "",
+                player_id: tUid || String(qId),
+                player_name: t.team_name || ("Nhẫn Giả " + qId),
                 player_lv: Number(t.team_lv || 1),
                 player_vip: Number(t.vip_lv || 0),
                 player_icon: Number(t.icon || 10010)
@@ -4964,17 +5280,171 @@ function sendWsFrame(socket, text) {
 
 // HTTP + WebSocket Server
 const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
     if (req.url === '/status' || req.url === '/api/status') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({
             status: "online",
             game: "Ninja Rebirth",
-            version: "1.0.4.100-loginfix",
+            version: "1.0.4.101-complete",
             build: "railway-ready",
             online_players: connectedSockets.size,
             registered_players: Object.keys(playerDb).length,
             uptime_seconds: Math.floor(process.uptime())
         }));
+        return;
+    }
+
+    if (req.url && (req.url.startsWith('/auth') || req.url.startsWith('/api/auth') || req.url.includes('api='))) {
+        let bodyStr = '';
+        req.on('data', chunk => { bodyStr += chunk; });
+        req.on('end', () => {
+            try {
+                const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+                const api = (parsedUrl.searchParams.get('api') || '').toLowerCase();
+                let pkg = [];
+                if (bodyStr) {
+                    try {
+                        pkg = JSON.parse(bodyStr);
+                    } catch (e) {
+                        const sp = new URLSearchParams(bodyStr);
+                        if (sp.has('pkg')) {
+                            try { pkg = JSON.parse(sp.get('pkg')); } catch (e2) {}
+                        }
+                    }
+                } else if (parsedUrl.searchParams.has('pkg')) {
+                    try { pkg = JSON.parse(parsedUrl.searchParams.get('pkg')); } catch (e) {}
+                }
+                if (!Array.isArray(pkg)) pkg = [];
+
+                const sendJson = (obj) => {
+                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                    res.end(JSON.stringify(obj));
+                };
+
+                const ensurePlayerRecord = (acc, pwd) => {
+                    if (!playerDb[acc]) {
+                        const tmp = Object.create(OfflineServer);
+                        tmp.initDefaultData();
+                        tmp.ensureDataFields();
+                        tmp.data.player_id = acc;
+                        tmp.data.uid = getOrAssignUid(acc, tmp.data);
+                        tmp.data.team_name = acc;
+                        if (pwd !== undefined) tmp.data.password = String(pwd);
+                        playerDb[acc] = tmp.data;
+                        markDirty(acc);
+                        saveDb();
+                    } else {
+                        playerDb[acc].uid = getOrAssignUid(acc, playerDb[acc]);
+                    }
+                    return playerDb[acc];
+                };
+
+                if (api === 'signup') {
+                    const acc = String(pkg[0] || '').trim();
+                    const pwd = String(pkg[1] || '');
+                    if (!acc) return sendJson({ err_code: 1, err_msg: "Vui lòng nhập tên tài khoản!" });
+                    if (playerDb[acc] && playerDb[acc].password) {
+                        return sendJson({ err_code: 1, err_msg: "Tài khoản đã tồn tại, vui lòng đăng nhập!" });
+                    }
+                    const rec = ensurePlayerRecord(acc, pwd);
+                    rec.password = pwd;
+                    markDirty(acc);
+                    saveDb();
+                    return sendJson([acc, "sess_" + acc + "_" + Date.now()]);
+                }
+
+                if (api === 'signin') {
+                    const acc = String(pkg[0] || '').trim();
+                    const pwd = String(pkg[1] || '');
+                    if (!acc) return sendJson({ err_code: 1, err_msg: "Vui lòng nhập tên tài khoản!" });
+                    if (playerDb[acc]) {
+                        if (playerDb[acc].password && playerDb[acc].password !== pwd) {
+                            return sendJson({ err_code: 1, err_msg: "Sai tài khoản hoặc mật khẩu!" });
+                        }
+                        if (!playerDb[acc].password && pwd) {
+                            playerDb[acc].password = pwd;
+                            markDirty(acc);
+                            saveDb();
+                        }
+                    } else {
+                        ensurePlayerRecord(acc, pwd);
+                    }
+                    return sendJson([acc, "sess_" + acc + "_" + Date.now()]);
+                }
+
+                if (api === 'check_guest_user' || api === 'checkguestuser') {
+                    const gid = String(pkg[0] || '').trim() || ("guest_" + (Math.floor(Math.random() * 899999) + 100000));
+                    const gpwd = String(pkg[1] || '123456');
+                    ensurePlayerRecord(gid, gpwd);
+                    return sendJson([gid, gpwd, gid, "sess_" + gid + "_" + Date.now()]);
+                }
+
+                if (api === 'get_server_list' || api === 'getserverlist') {
+                    return sendJson({
+                        servers: [{
+                            id: 1,
+                            name: "Ninja Đại Chiến",
+                            serverip: "interchange.proxy.rlwy.net:19046/rpc",
+                            host: "interchange.proxy.rlwy.net",
+                            port: 19046,
+                            status: 1,
+                            newer: 1,
+                            hot: 1
+                        }]
+                    });
+                }
+
+                if (api === 'get_notifications' || api === 'getnotifications') {
+                    return sendJson([]);
+                }
+
+                if (api === 'change_password') {
+                    const acc = String(pkg[0] || '').trim();
+                    const oldPwd = String(pkg[1] || '');
+                    const newPwd = String(pkg[2] || '');
+                    if (acc && playerDb[acc]) {
+                        if (playerDb[acc].password && playerDb[acc].password !== oldPwd) {
+                            return sendJson({ err_code: 1, err_msg: "Mật khẩu cũ không đúng!" });
+                        }
+                        playerDb[acc].password = newPwd;
+                        markDirty(acc);
+                        saveDb();
+                    }
+                    return sendJson({ status: 1 });
+                }
+
+                if (api === 'change_username') {
+                    const oldAcc = String(pkg[0] || '').trim();
+                    const newAcc = String(pkg[2] || pkg[1] || '').trim();
+                    const newPwd = String(pkg[3] || '');
+                    if (newAcc && playerDb[newAcc] && newAcc !== oldAcc) {
+                        return sendJson({ err_code: 1, err_msg: "Tên tài khoản mới đã tồn tại!" });
+                    }
+                    if (oldAcc && newAcc && playerDb[oldAcc]) {
+                        playerDb[newAcc] = playerDb[oldAcc];
+                        playerDb[newAcc].player_id = newAcc;
+                        if (newPwd) playerDb[newAcc].password = newPwd;
+                        markDirty(newAcc);
+                        saveDb();
+                    }
+                    return sendJson({ status: 1 });
+                }
+
+                return sendJson({ status: 1 });
+            } catch (err) {
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ err_code: 1, err_msg: err.message }));
+            }
+        });
         return;
     }
 
@@ -5019,8 +5489,12 @@ server.on('upgrade', (req, socket, head) => {
 
     const session = new PlayerSession(socket);
 
-    // Initial greeting / Connected event
-    session.sendPacket("Connected", { status: 1 });
+    // Delay initial greeting slightly so it does not collide with HTTP 101 Upgrade packet or client onopen
+    setTimeout(() => {
+        if (!socket.destroyed && !session.hasLoggedIn) {
+            session.sendPacket("Connected", { status: 1 });
+        }
+    }, 60);
 
     let buffer = (head && head.length) ? Buffer.from(head) : Buffer.alloc(0);
 
