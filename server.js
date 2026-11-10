@@ -4710,7 +4710,7 @@ class PlayerSession {
     }
 
     sendPacket(funcName, data, error) {
-        if (this.ws.readyState !== 1) return;
+        if (!this.ws || this.ws.destroyed) return;
         const pkg = {
             func_name: funcName,
             data: data || {},
@@ -4779,7 +4779,7 @@ class PlayerSession {
 
 // Lightweight Zero-Dependency WebSocket RFC 6455 Implementation
 function sendWsFrame(socket, text) {
-    if (!socket || socket.destroyed || socket.readyState > 1) return;
+    if (!socket || socket.destroyed) return;
     const payload = Buffer.from(text, 'utf-8');
     const length = payload.length;
     let header;
