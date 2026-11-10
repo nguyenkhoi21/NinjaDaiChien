@@ -1,0 +1,10 @@
+{
+  "name": "shinobi-saga-server",
+  "version": "1.0.4.63",
+  "description": "Standalone Online Server for Shinobi Saga",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}
