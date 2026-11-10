@@ -7,7 +7,7 @@ if (typeof SVRCMD === 'undefined') {
 }
 
 /**
- * Shinobi Saga Standalone Online Server (Node.js)
+ * Ninja Rebirth (Ninja Đại Chiến) Standalone Online Server (Node.js)
  * Supports multiple players, chat broadcast, persistence to disk, and all game commands.
  */
 
@@ -4807,7 +4807,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             status: "online",
-            game: "Shinobi Saga",
+            game: "Ninja Rebirth",
             version: "1.0.4.63",
             online_players: connectedSockets.size,
             registered_players: Object.keys(playerDb).length,
@@ -4820,15 +4820,15 @@ const server = http.createServer((req, res) => {
     res.end(`
         <!DOCTYPE html>
         <html>
-        <head><title>Shinobi Saga Online Server</title><meta charset="utf-8"></head>
+        <head><title>Ninja Rebirth Online Server</title><meta charset="utf-8"></head>
         <body style="font-family:sans-serif; background:#1e1e2f; color:#fff; padding:30px;">
-            <h1>🍃 Shinobi Saga Standalone Server</h1>
+            <h1>🍃 Ninja Rebirth Standalone Server</h1>
             <p style="color:#4caf50;"><b>● Server Status: ONLINE</b></p>
             <p><b>Port:</b> ${PORT} (WebSocket: <code>ws://YOUR_IP:${PORT}</code>)</p>
             <p><b>Online Players:</b> ${connectedSockets.size}</p>
             <p><b>Registered Players:</b> ${Object.keys(playerDb).length}</p>
             <hr style="border-color:#444;" />
-            <p>Ready for connections from Shinobi Saga APK & IPA!</p>
+            <p>Ready for connections from Ninja Rebirth APK & IPA!</p>
         </body>
         </html>
     `);
@@ -4942,7 +4942,7 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`=======================================================`);
-    console.log(`🍃 Shinobi Saga Standalone Online Server is running!`);
+    console.log(`🍃 Ninja Rebirth Standalone Online Server is running!`);
     console.log(`   Port     : ${PORT}`);
     console.log(`   WebSocket: ws://localhost:${PORT}`);
     console.log(`   Dashboard: http://localhost:${PORT}/status`);

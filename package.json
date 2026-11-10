@@ -1,7 +1,7 @@
 {
-  "name": "shinobi-saga-server",
-  "version": "1.0.4.63",
-  "description": "Standalone Online Server for Shinobi Saga",
+  "name": "ninja-rebirth-server",
+  "version": "1.0.4.99",
+  "description": "Standalone Online Server for Ninja Rebirth (Ninja Đại Chiến)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
