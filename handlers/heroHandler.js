@@ -4,6 +4,59 @@
 // ============================================================================
 
 const HeroHandler = {
+    getMaxSkillPoint: function() {
+        var vipLv = Number(this.data.vip_lv || 0);
+        if (vipLv >= 5) {
+            return 50 + (vipLv - 5);
+        }
+        return 10;
+    },
+
+    getSkillPointInfo: function() {
+        var maxPoint = this.getMaxSkillPoint();
+        var nowSec = Math.floor(Date.now() / 1000);
+        if (this.data.skill_point === undefined || this.data.skill_point === null) {
+            this.data.skill_point = maxPoint;
+            this.data.last_skill_time = nowSec;
+        }
+        var curPoint = Number(this.data.skill_point || 0);
+        var lastTime = Number(this.data.last_skill_time || nowSec);
+
+        if (curPoint < maxPoint) {
+            var diffSec = Math.max(0, nowSec - lastTime);
+            var recovered = Math.floor(diffSec / 60);
+            if (recovered > 0) {
+                curPoint = Math.min(maxPoint, curPoint + recovered);
+                this.data.skill_point = curPoint;
+                if (curPoint >= maxPoint) {
+                    this.data.last_skill_time = nowSec;
+                } else {
+                    this.data.last_skill_time = lastTime + recovered * 60;
+                }
+            }
+        } else {
+            this.data.last_skill_time = nowSec;
+        }
+
+        return {
+            leftCount: curPoint,
+            lastTime: Number(this.data.last_skill_time || nowSec),
+            maxPoint: maxPoint
+        };
+    },
+
+    deductSkillPoint: function(amount) {
+        var sInfo = this.getSkillPointInfo();
+        var cur = sInfo.leftCount;
+        var nowSec = Math.floor(Date.now() / 1000);
+        var maxPoint = sInfo.maxPoint;
+        if (cur >= maxPoint) {
+            this.data.last_skill_time = nowSec;
+        }
+        this.data.skill_point = Math.max(0, cur - (amount || 1));
+        return this.data.skill_point;
+    },
+
     createDefaultHeroRecord: function(hid) {
         hid = Number(hid);
         var star = 1;
@@ -340,7 +393,8 @@ const HeroHandler = {
         }
 
         if (cmd === SVRCMD.SkillUpgradeInfo) {
-            respond({ leftCount: 9999, point: 9999, lastTime: Math.floor(Date.now() / 1000) });
+            var sInfo = this.getSkillPointInfo();
+            respond({ leftCount: sInfo.leftCount, point: sInfo.leftCount, lastTime: sInfo.lastTime });
             return true;
         }
 
@@ -348,6 +402,12 @@ const HeroHandler = {
             var heroId = Number((params && params[0]) || 0);
             var skillParam = Number((params && params[1]) || 1);
             var newLv = 2;
+
+            var sInfo = this.getSkillPointInfo();
+            if (sInfo.leftCount <= 0) {
+                return respond({}, { code: 1, msg: "Không đủ Điểm Kỹ Năng!" }), true;
+            }
+
             if (this.data.heros[heroId]) {
                 var h = this.data.heros[heroId];
                 var skillIndex = skillParam;
@@ -366,11 +426,16 @@ const HeroHandler = {
                 if (skillIndex < 1 || skillIndex > 12) skillIndex = 1;
                 var curLv = Number(h["skill_" + skillIndex + "_lv"] !== undefined ? h["skill_" + skillIndex + "_lv"] : 1);
 
-                var maxLv = 80;
-                if (skillIndex === 3 || skillIndex === 8) maxLv = 60;
-                else if (skillIndex === 4 || skillIndex === 5 || skillIndex === 9 || skillIndex === 10) maxLv = 40;
+                var heroTeamLv = Number(h.lv || h.level || this.data.team_lv || 1);
+                var maxLv = heroTeamLv;
+                if (skillIndex === 3 || skillIndex === 8) maxLv = Math.max(1, heroTeamLv - 20);
+                else if (skillIndex === 4 || skillIndex === 5 || skillIndex === 9 || skillIndex === 10) maxLv = Math.max(1, heroTeamLv - 40);
 
-                newLv = Math.min(maxLv, curLv + 1);
+                if (curLv >= maxLv) {
+                    return respond({}, { code: 1, msg: "Cấp kỹ năng đã đạt giới hạn nhân vật!" }), true;
+                }
+
+                newLv = curLv + 1;
                 var costGold = 100 * Math.max(1, curLv);
                 if (typeof Config !== "undefined" && Config.skillLevel && Config.skillLevel[curLv]) {
                     var q = (Config.skill && Config.skill[skillId]) ? Number(Config.skill[skillId].quality || 1) : 1;
@@ -382,6 +447,8 @@ const HeroHandler = {
                     return respond({}, { code: 1, msg: "Không đủ Vàng để nâng cấp kỹ năng!" }), true;
                 }
                 self.deductGold(costGold, queuePush);
+                this.deductSkillPoint(1);
+
                 h["skill_" + skillIndex + "_lv"] = newLv;
                 if (skillIndex <= 5 && Number(h["skill_" + (skillIndex + 5) + "_lv"] || 0) > 0) {
                     h["skill_" + (skillIndex + 5) + "_lv"] = newLv;
@@ -391,7 +458,8 @@ const HeroHandler = {
                 this.data.daily_counts["PLAYER_DIALY_TASK_7"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_7"] || 0) + 1;
                 queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
             }
-            respond({ skillLv: newLv, leftCount: 9999, point: 9999, lastTime: Math.floor(Date.now() / 1000) });
+            var updatedInfo = this.getSkillPointInfo();
+            respond({ skillLv: newLv, leftCount: updatedInfo.leftCount, point: updatedInfo.leftCount, lastTime: updatedInfo.lastTime });
             return true;
         }
 
@@ -828,38 +896,66 @@ const HeroHandler = {
         if (cmd === SVRCMD.UpgradeBeastByStone) {
             var heroId = Number((params && params[0]) || 0);
             var beastId = Number((params && params[1]) || 30001);
-            var stoneCost = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE) ? Number(ConfigGlobalVar.BEAST_PER_STONE) : 20;
-            var expGain = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE_EXP) ? Number(ConfigGlobalVar.BEAST_PER_STONE_EXP) : 20;
+
+            var vipLv = Number(this.data.vip_lv || 0);
+            if (vipLv < 7) {
+                return respond({}, { code: 1, msg: "Cần đạt VIP 7 để mở Cho Vĩ Thú ăn nhanh!" }), true;
+            }
+
+            var upgradeGoods = (typeof Config !== "undefined" && Config.goods2) ? Config.goods2[14001] : null;
+            var upgradeMaxTimes = 70;
+            if (upgradeGoods) {
+                for (var ugk in upgradeGoods) {
+                    if (Number(upgradeGoods[ugk].need_vip_lv) === vipLv) {
+                        upgradeMaxTimes = Number(upgradeGoods[ugk].value);
+                        break;
+                    }
+                }
+            }
+            var curTimes = Number(this.data.daily_counts["BEAST_STONE_EXP"] || 0);
+            if (curTimes >= upgradeMaxTimes) {
+                return respond({}, { code: 1, msg: "Số lần cho ăn hôm nay đã hết, tăng cấp VIP để thêm lượt!" }), true;
+            }
+
+            var stoneCost = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE) ? Number(ConfigGlobalVar.BEAST_PER_STONE) : 50;
+            var expGain = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE_EXP) ? Number(ConfigGlobalVar.BEAST_PER_STONE_EXP) : 5000;
             if (!this.canDeductStone(stoneCost)) {
                 return respond({}, { code: 1, msg: "Không đủ Kim Cương!" }), true;
             }
             this.deductStone(stoneCost, queuePush);
-            this.data.daily_counts["BEAST_STONE_EXP"] = Number(this.data.daily_counts["BEAST_STONE_EXP"] || 0) + expGain;
+            this.data.daily_counts["BEAST_STONE_EXP"] = curTimes + 1;
             this.data.daily_counts["PLAYER_DIALY_TASK_10"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_10"] || 0) + 1;
 
-            var updatedBeast2 = { beast_id: beastId, lv: 1, exp: 0 };
-            if (this.data.beasts[heroId]) {
-                for (var bi2 = 0; bi2 < this.data.beasts[heroId].length; bi2++) {
-                    var b2 = this.data.beasts[heroId][bi2];
-                    if (b2.beast_id == beastId) {
-                        var lv2 = Number(b2.lv || 1);
-                        var exp2 = Number(b2.exp || 0) + expGain;
-                        if (typeof Config !== "undefined" && Config.beast && Config.beast[beastId]) {
-                            while (lv2 < 10 && Config.beast[beastId][lv2] && Config.beast[beastId][lv2].upg_exp > 0 && exp2 >= Config.beast[beastId][lv2].upg_exp) {
-                                exp2 -= Config.beast[beastId][lv2].upg_exp;
-                                lv2++;
-                            }
-                            if (lv2 >= 10 && Config.beast[beastId][10]) {
-                                exp2 = 0;
-                            }
+            if (!this.data.beasts) this.data.beasts = {};
+            if (!this.data.beasts[heroId]) this.data.beasts[heroId] = [];
+
+            var updatedBeast2 = null;
+            for (var bi2 = 0; bi2 < this.data.beasts[heroId].length; bi2++) {
+                var b2 = this.data.beasts[heroId][bi2];
+                if (b2.beast_id == beastId) {
+                    var lv2 = Number(b2.lv || 1);
+                    var exp2 = Number(b2.exp || 0) + expGain;
+                    if (typeof Config !== "undefined" && Config.beast && Config.beast[beastId]) {
+                        while (lv2 < 10 && Config.beast[beastId][lv2] && Config.beast[beastId][lv2].upg_exp > 0 && exp2 >= Config.beast[beastId][lv2].upg_exp) {
+                            exp2 -= Config.beast[beastId][lv2].upg_exp;
+                            lv2++;
                         }
-                        b2.lv = lv2;
-                        b2.exp = exp2;
-                        updatedBeast2 = b2;
-                        queuePush(SVRCMD.Beast, { beast: b2 });
-                        break;
+                        if (lv2 >= 10 && Config.beast[beastId][10]) {
+                            exp2 = 0;
+                        }
                     }
+                    b2.lv = lv2;
+                    b2.exp = exp2;
+                    b2.hero_id = heroId;
+                    updatedBeast2 = b2;
+                    queuePush(SVRCMD.Beast, { beast: b2 });
+                    break;
                 }
+            }
+            if (!updatedBeast2) {
+                updatedBeast2 = { hero_id: heroId, beast_id: beastId, lv: 1, exp: 0, soul_absorbed: 0 };
+                this.data.beasts[heroId].push(updatedBeast2);
+                queuePush(SVRCMD.Beast, { beast: updatedBeast2 });
             }
             if (this.data.heros[heroId]) {
                 queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });

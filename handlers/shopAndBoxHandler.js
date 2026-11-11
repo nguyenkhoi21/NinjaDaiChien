@@ -304,7 +304,11 @@ const ShopAndBoxHandler = {
                 this.data.daily_counts["PLAYER_DIALY_TASK_14"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_14"] || 0) + 1;
             } else if (goods2Id === 9101) {
                 // Buy Skill Points
-                this.data.skill_points = 20;
+                var spAdd = rewardVal > 0 ? rewardVal : 20;
+                var curSp = Number(this.data.skill_point !== undefined && this.data.skill_point !== null ? this.data.skill_point : 10);
+                this.data.skill_point = curSp + spAdd;
+                this.data.skill_points = this.data.skill_point;
+                this.data.last_skill_time = Math.floor(Date.now() / 1000);
             }
 
             queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
