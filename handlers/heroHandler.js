@@ -801,16 +801,28 @@ const HeroHandler = {
             var heroId = Number((params && params[0]) || 0);
             var beastId = Number((params && params[1]) || 30001);
             var useEquips = (params && params[2]) || {};
-            var useSouls = (params && params[3]) || {};
+            var useItems = (params && params[3]) || {};
             var totalExp = 0;
             var totalSoulsAbsorbed = 0;
 
-            for (var sid in useSouls) {
-                var scnt = Number(useSouls[sid] || 0);
-                if (scnt > 0 && !this.canDeductItem(Number(sid), scnt)) {
-                    return respond({}, { code: 1, msg: "Không đủ Hồn Ninja để nuốt!" }), true;
+            // 1. Kiểm tra và tính EXP từ useItems (vật phẩm thú cưỡi exp và linh hồn)
+            for (var sid in useItems) {
+                var scnt = Number(useItems[sid] || 0);
+                if (scnt > 0) {
+                    if (!this.canDeductItem(Number(sid), scnt)) {
+                        return respond({}, { code: 1, msg: "Không đủ vật phẩm trong túi!" }), true;
+                    }
+                    var iCfg = (typeof Config !== "undefined" && Config.item && Config.item[sid]) ? Config.item[sid] : null;
+                    var itemExp = iCfg ? Number(iCfg.add_weishou_exp || 0) : 0;
+                    if (itemExp <= 0) {
+                        // Nếu là hồn ninja hoặc vật phẩm không có add_weishou_exp trực tiếp
+                        itemExp = 10;
+                    }
+                    totalExp += itemExp * scnt;
                 }
             }
+
+            // 2. Kiểm tra và tính EXP từ useEquips (trang bị)
             for (var eid in useEquips) {
                 var ecnt = Number(useEquips[eid] || 0);
                 if (ecnt > 0) {
@@ -823,14 +835,16 @@ const HeroHandler = {
                 }
             }
 
-            var goldPerExp = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_USE_EQUIP_EXP) ? Number(ConfigGlobalVar.BEAST_USE_EQUIP_EXP) : 10;
+            // 3. Kiểm tra vàng (ConfigGlobalVar.BEAST_EQUIP_PER_GOLD = 100 vàng mỗi 1 exp)
+            var goldPerExp = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_EQUIP_PER_GOLD) ? Number(ConfigGlobalVar.BEAST_EQUIP_PER_GOLD) : 100;
             var goldCost = totalExp * goldPerExp;
             if (goldCost > 0 && !this.canDeductGold(goldCost)) {
                 return respond({}, { code: 1, msg: "Không đủ Vàng để nâng cấp Vĩ Thú!" }), true;
             }
 
-            for (var sid in useSouls) {
-                var scnt = Number(useSouls[sid] || 0);
+            // 4. Trừ vật phẩm, trang bị và vàng
+            for (var sid in useItems) {
+                var scnt = Number(useItems[sid] || 0);
                 if (scnt > 0) {
                     this.deductItem(Number(sid), scnt, queuePush);
                     totalSoulsAbsorbed += scnt;
@@ -905,19 +919,31 @@ const HeroHandler = {
             var upgradeGoods = (typeof Config !== "undefined" && Config.goods2) ? Config.goods2[14001] : null;
             var upgradeMaxTimes = 70;
             if (upgradeGoods) {
+                var bestTierTimes = 0;
                 for (var ugk in upgradeGoods) {
-                    if (Number(upgradeGoods[ugk].need_vip_lv) === vipLv) {
-                        upgradeMaxTimes = Number(upgradeGoods[ugk].value);
-                        break;
+                    var needVip = Number(upgradeGoods[ugk].need_vip_lv);
+                    if (vipLv >= needVip) {
+                        var valTimes = Number(upgradeGoods[ugk].value);
+                        if (valTimes > bestTierTimes) {
+                            bestTierTimes = valTimes;
+                        }
                     }
                 }
+                if (bestTierTimes > 0) {
+                    upgradeMaxTimes = bestTierTimes;
+                } else {
+                    upgradeMaxTimes = 70 + (vipLv - 7) * 10;
+                }
+            } else {
+                upgradeMaxTimes = 70 + (vipLv - 7) * 10;
             }
+
             var curTimes = Number(this.data.daily_counts["BEAST_STONE_EXP"] || 0);
             if (curTimes >= upgradeMaxTimes) {
                 return respond({}, { code: 1, msg: "Số lần cho ăn hôm nay đã hết, tăng cấp VIP để thêm lượt!" }), true;
             }
 
-            var stoneCost = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE) ? Number(ConfigGlobalVar.BEAST_PER_STONE) : 50;
+            var stoneCost = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE) ? Number(ConfigGlobalVar.BEAST_PER_STONE) : 500;
             var expGain = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar.BEAST_PER_STONE_EXP) ? Number(ConfigGlobalVar.BEAST_PER_STONE_EXP) : 5000;
             if (!this.canDeductStone(stoneCost)) {
                 return respond({}, { code: 1, msg: "Không đủ Kim Cương!" }), true;
@@ -954,10 +980,23 @@ const HeroHandler = {
             }
             if (!updatedBeast2) {
                 updatedBeast2 = { hero_id: heroId, beast_id: beastId, lv: 1, exp: 0, soul_absorbed: 0 };
+                var lvInit = 1;
+                var expInit = expGain;
+                if (typeof Config !== "undefined" && Config.beast && Config.beast[beastId]) {
+                    while (lvInit < 10 && Config.beast[beastId][lvInit] && Config.beast[beastId][lvInit].upg_exp > 0 && expInit >= Config.beast[beastId][lvInit].upg_exp) {
+                        expInit -= Config.beast[beastId][lvInit].upg_exp;
+                        lvInit++;
+                    }
+                    if (lvInit >= 10 && Config.beast[beastId][10]) {
+                        expInit = 0;
+                    }
+                }
+                updatedBeast2.lv = lvInit;
+                updatedBeast2.exp = expInit;
                 this.data.beasts[heroId].push(updatedBeast2);
                 queuePush(SVRCMD.Beast, { beast: updatedBeast2 });
             }
-            if (this.data.heros[heroId]) {
+            if (this.data.heros && this.data.heros[heroId]) {
                 queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
             }
             respond({ beast: updatedBeast2 });
