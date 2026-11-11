@@ -3,6 +3,86 @@
 // (Arena, DarkArena, LimitedArena, Tower, NoEndTower, NinjaFight/Expedition, Treasure/Mining, CrossServer Boss/Arena/DarkArena)
 // ============================================================================
 
+class PackageWriter {
+    constructor() { this.buf = []; }
+    appendByte(v) { this.buf.push(v & 0xFF); }
+    appendShort(v) { this.buf.push((v >> 8) & 0xFF, v & 0xFF); }
+    appendInt(v) {
+        this.buf.push((v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    }
+    getPackage() { return this.buf; }
+}
+
+function getHeroSkillIds(hid) {
+    if (typeof Config !== "undefined" && Config.hero && Config.hero[hid]) {
+        var hCfg = Config.hero[hid];
+        var sks = [];
+        for (var k = 1; k <= 4; k++) {
+            var skid = hCfg["skill_" + k];
+            if (skid && Config.skill && Config.skill[skid]) {
+                sks.push({ id: skid, lv: 80, status: 1 });
+            }
+        }
+        return sks;
+    }
+    return [];
+}
+
+function writeHeroToBuffer(pw, uid, hid) {
+    var sks = getHeroSkillIds(hid);
+    pw.appendInt(uid);
+    pw.appendInt(hid);
+    pw.appendInt(100000); // hp
+    pw.appendInt(80);     // level
+    pw.appendInt(10);     // quality
+    pw.appendInt(100000); // maxHp
+    pw.appendInt(5000);   // physicDmg
+    pw.appendInt(2000);   // physicDef
+    pw.appendInt(2000);   // physicCirt * 100
+    pw.appendInt(100);    // power
+    pw.appendInt(1000);   // maxPower
+    pw.appendInt(5000);   // magicDmg
+    pw.appendInt(2000);   // magicDef
+    pw.appendInt(2000);   // magicCirt * 100
+    pw.appendInt(300);    // moveSpeed
+    pw.appendInt(150);    // attackRange
+    pw.appendInt(100);    // attackSpeed
+    pw.appendInt(10);     // powerSpeed
+    pw.appendInt(0);      // randomsRec.length
+    pw.appendByte(sks.length);
+    for (var s = 0; s < sks.length; s++) {
+        pw.appendInt(sks[s].id);
+        pw.appendInt(sks[s].lv);
+        pw.appendInt(sks[s].status);
+    }
+    pw.appendByte(0);     // has_awake
+}
+
+function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec) {
+    var pw = new PackageWriter();
+    pw.appendShort(0);
+    pw.appendByte(0);
+    pw.appendByte(atkHeros.length);
+    for (var i = 0; i < atkHeros.length; i++) {
+        writeHeroToBuffer(pw, 1000 + i, atkHeros[i]);
+    }
+    pw.appendByte(defHeros.length);
+    for (var j = 0; j < defHeros.length; j++) {
+        writeHeroToBuffer(pw, 2000 + j, defHeros[j]);
+    }
+    pw.appendByte(isWin ? 1 : 0);
+
+    var bmStr = pw.getPackage().join(",");
+    var replayObj = {
+        bm: bmStr,
+        result: !!isWin,
+        seed: Math.floor(Math.random() * 1000000),
+        arena_protocol: 2,
+        maxframetime: (durationSec || 5) * 1000
+    };
+    return JSON.stringify(replayObj);
+}
+
 const ArenaAndTowerHandler = {
     handleArenaAndTowerCommand: function(cmd, params, respond, queuePush) {
         var self = this;
@@ -569,7 +649,7 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.MatchFighters || cmd === SVRCMD.MatcDarkhFighters) {
-            var myRank = Number(this.data.dark_arena_rank || 100);
+            var myRank = Number(cmd === SVRCMD.MatcDarkhFighters ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
             var botHero1 = this.createDefaultHeroRecord(10020);
             var botHero2 = this.createDefaultHeroRecord(10040);
             var botHero3 = this.createDefaultHeroRecord(10070);
@@ -588,10 +668,9 @@ const ArenaAndTowerHandler = {
 
         if (cmd === SVRCMD.PlayerArenaInfo || cmd === SVRCMD.PlayerDarkArenaInfo) {
             var fId = Number((params && params[0]) || 101);
-            var botHero1 = this.createDefaultHeroRecord(10020);
-            var botHero2 = this.createDefaultHeroRecord(10040);
-            var botHero3 = this.createDefaultHeroRecord(10070);
-            var defStr = JSON.stringify([botHero1, botHero2, botHero3]);
+            var defArr1 = [this.createDefaultHeroRecord(10020), this.createDefaultHeroRecord(10040), this.createDefaultHeroRecord(10070), this.createDefaultHeroRecord(10010), this.createDefaultHeroRecord(10030)];
+            var defArr2 = [this.createDefaultHeroRecord(10110), this.createDefaultHeroRecord(10120), this.createDefaultHeroRecord(10140), this.createDefaultHeroRecord(10150), this.createDefaultHeroRecord(10160)];
+            var defArr3 = [this.createDefaultHeroRecord(10280), this.createDefaultHeroRecord(10290), this.createDefaultHeroRecord(10310), this.createDefaultHeroRecord(10320), this.createDefaultHeroRecord(10330)];
             respond({
                 player_id: fId,
                 fighter_id: fId,
@@ -603,19 +682,26 @@ const ArenaAndTowerHandler = {
                 player_lv: 80,
                 icon: 30610460,
                 fight_value: 500000,
-                def_heros_1: defStr,
-                def_heros_2: defStr,
-                def_heros_3: defStr
+                def_heros_1: JSON.stringify(defArr1),
+                def_heros_2: JSON.stringify(defArr2),
+                def_heros_3: JSON.stringify(defArr3)
             });
             return true;
         }
 
         if (cmd === SVRCMD.SetArenaLineup || cmd === SVRCMD.SetDarkArenaLineup || cmd === SVRCMD.ClearArenaFightCD || cmd === SVRCMD.ClearDarkArenaFightCD || cmd === SVRCMD.BuyArenaFightNum || cmd === SVRCMD.BuyDarkArenaFightNum) {
+            if (cmd === SVRCMD.SetDarkArenaLineup) {
+                if (params && params[1]) this.data.dark_arena_lineup_1 = String(params[1]);
+                if (params && params[2]) this.data.dark_arena_lineup_2 = String(params[2]);
+                if (params && params[3]) this.data.dark_arena_lineup_3 = String(params[3]);
+                this.save();
+            }
             respond({ status: 1 });
             return true;
         }
 
         if (cmd === SVRCMD.ArenaFight || cmd === SVRCMD.DarkArenaFight) {
+            var targetFighterId = Number((params && params[0]) || 101);
             var reqId = (params && params[4]) ? String(params[4]) : "";
             this.addStone(100, queuePush);
             this.addCurrency(10, 200, queuePush);
@@ -624,20 +710,41 @@ const ArenaAndTowerHandler = {
             this.data.arena_rank = newRank;
             if (cmd === SVRCMD.DarkArenaFight) {
                 this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
+                var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+                var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6);
+                var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10010, 10030, 10080], true, 6);
+                var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15), [10110, 10120, 10140], true, 6);
+                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
+                this.save();
+                respond({
+                    useZip: false,
+                    isWin: 1,
+                    rank: newRank,
+                    fightData1: fData1,
+                    fightData2: fData2,
+                    fightData3: fData3,
+                    settled: true,
+                    reward: { gold: 50000, stone: 100 }
+                });
+                return true;
             } else {
                 this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
+                var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+                var fData = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6);
+                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
+                this.save();
+                respond({
+                    skipReply: false,
+                    isWin: 1,
+                    arena_request_id: reqId,
+                    seed: Math.floor(Math.random() * 1000000),
+                    fight_data: fData,
+                    rank: newRank,
+                    settled: true,
+                    reward: { gold: 50000, stone: 100 }
+                });
+                return true;
             }
-            this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
-            this.save();
-            respond({
-                skipReply: true,
-                isWin: 1,
-                arena_request_id: reqId,
-                rank: newRank,
-                settled: true,
-                reward: { gold: 50000, stone: 100 }
-            });
-            return true;
         }
 
         if (cmd === SVRCMD.ArenaFightReport || cmd === SVRCMD.DarkArenaFightReport) {
@@ -693,38 +800,79 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.DarkArenaInfo) {
-            var myHerosArr = [];
-            for (var hid in this.data.heros) {
-                myHerosArr.push(this.computeHeroPayload(hid));
-                if (myHerosArr.length >= 3) break;
+            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+            myHeroIds.sort(function(a, b) {
+                var ha = self.data.heros[a];
+                var hb = self.data.heros[b];
+                var pwa = Number((ha && ha.power) || (ha && ha.level * 100) || 0);
+                var pwb = Number((hb && hb.power) || (hb && hb.level * 100) || 0);
+                return pwb - pwa;
+            });
+            var top15 = myHeroIds.slice(0, 15);
+            var f1 = [], f2 = [], f3 = [];
+            if (this.data.dark_arena_lineup_1) {
+                f1 = this.data.dark_arena_lineup_1.split(",").map(Number).filter(Boolean);
             }
-            var defStr = JSON.stringify(myHerosArr);
+            if (this.data.dark_arena_lineup_2) {
+                f2 = this.data.dark_arena_lineup_2.split(",").map(Number).filter(Boolean);
+            }
+            if (this.data.dark_arena_lineup_3) {
+                f3 = this.data.dark_arena_lineup_3.split(",").map(Number).filter(Boolean);
+            }
+            if (f1.length === 0 && f2.length === 0 && f3.length === 0) {
+                f1 = top15.slice(0, 5);
+                f2 = top15.slice(5, 10);
+                f3 = top15.slice(10, 15);
+                this.data.dark_arena_lineup_1 = f1.join(",");
+                this.data.dark_arena_lineup_2 = f2.join(",");
+                this.data.dark_arena_lineup_3 = f3.join(",");
+                this.save();
+            }
+            var defHeros1 = f1.map(function(hid) { return self.computeHeroPayload(hid); });
+            var defHeros2 = f2.map(function(hid) { return self.computeHeroPayload(hid); });
+            var defHeros3 = f3.map(function(hid) { return self.computeHeroPayload(hid); });
+
+            var nowSec = Math.floor(Date.now() / 1000);
+            var lastTime = Number(this.data.dark_arena_last_point_time || nowSec);
+            var elapsedHours = Math.max(0, (nowSec - lastTime) / 3600);
+            var hourPt = 50;
+            var accumulated = Number(this.data.dark_arena_accumulated_point || 0) + Math.floor(elapsedHours * hourPt);
+            this.data.dark_arena_accumulated_point = accumulated;
+            this.data.dark_arena_last_point_time = nowSec;
+
             respond({
                 rank: {
-                    rank: 10,
+                    rank: Number(this.data.dark_arena_rank || 10),
                     icon: Number(this.data.icon || 80110070),
-                    win_count: 10,
+                    win_count: Number(this.data.dark_arena_win_count || 10),
                     player_lv: Number(this.data.team_lv || 1),
                     player_name: this.data.team_name || "Nhẫn Giả",
                     player_id: this.getNumericId(),
                     fighter_id: this.getNumericId(),
                     fight_value: 5000,
                     server_id: 1,
-                    def_heros_1: defStr,
-                    def_heros_2: defStr,
-                    def_heros_3: defStr
+                    def_heros_1: JSON.stringify(defHeros1),
+                    def_heros_2: JSON.stringify(defHeros2),
+                    def_heros_3: JSON.stringify(defHeros3)
                 },
-                fightCount: 0,
-                lastFightTime: 0,
-                hour_point: 50,
-                total_point: 500
+                fightCount: Number(this.data.dark_arena_fight_count || 0),
+                lastFightTime: Number(this.data.dark_arena_last_fight_time || 0),
+                hour_point: hourPt,
+                total_point: accumulated
             });
             return true;
         }
 
         if (cmd === SVRCMD.ReceiceDarkArenaRecordPoint) {
-            this.addCurrency(13, 500, queuePush);
-            respond({ point: 500, status: 1, total_point: 0 });
+            var pts = Number(this.data.dark_arena_accumulated_point || 0);
+            if (pts > 0) {
+                this.addCurrency(13, pts, queuePush);
+                this.data.dark_arena_accumulated_point = 0;
+                this.save();
+                respond({ point: pts, status: 1, total_point: 0 });
+            } else {
+                respond({ point: 0, status: 1, total_point: 0 });
+            }
             return true;
         }
 
@@ -972,12 +1120,18 @@ const ArenaAndTowerHandler = {
             var battleDmg = 18500000;
             this.data.cross_boss_damage = Number(this.data.cross_boss_damage || 0) + battleDmg;
             this.addGold(200000, queuePush);
+
+            var atkHeroIds = lineupStr.split(",").map(Number).filter(Boolean);
+            if (atkHeroIds.length === 0) atkHeroIds = [11060, 11000, 10510, 10650, 10710];
+            var bossDefIds = [11060, 11000, 10510];
+            var fData = generateBattleReplayJson(atkHeroIds, bossDefIds, true, 8);
+
             respond({
                 useZip: false,
                 damage: battleDmg,
                 rank: 1,
                 total_damage: this.data.cross_boss_damage,
-                fightData: "{\"0\":{\"e\":[[\"__b6\",100000000001,20652,21,13,11],[\"__b19\",100000000001]]}}"
+                fightData: fData
             });
             return true;
         }
@@ -1078,46 +1232,62 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "CrossMatchArenaFighters" || cmd === SVRCMD.CrossMatchArenaFighters) {
+            var defHerosJson1 = JSON.stringify([this.createDefaultHeroRecord(11060), this.createDefaultHeroRecord(11000), this.createDefaultHeroRecord(10510)]);
+            var defHerosJson2 = JSON.stringify([this.createDefaultHeroRecord(10650), this.createDefaultHeroRecord(10710), this.createDefaultHeroRecord(10020)]);
+            var defHerosJson3 = JSON.stringify([this.createDefaultHeroRecord(10010), this.createDefaultHeroRecord(10030), this.createDefaultHeroRecord(10040)]);
+            respond([
+                { player_id: 4520, fighter_id: 4520, player_name: "Madara Uchiha", server_id: 2, rank: 2, score: 2350, icon: 11060, team_lv: 99, power: 1500000, fight_value: 1500000, def_heros_1: defHerosJson1, def_heros_2: defHerosJson2, def_heros_3: defHerosJson3 },
+                { player_id: 4521, fighter_id: 4521, player_name: "Hashirama Senju", server_id: 1, rank: 3, score: 2300, icon: 11000, team_lv: 98, power: 1450000, fight_value: 1450000, def_heros_1: defHerosJson1, def_heros_2: defHerosJson2, def_heros_3: defHerosJson3 },
+                { player_id: 4522, fighter_id: 4522, player_name: "Minato Namikaze", server_id: 3, rank: 4, score: 2250, icon: 10710, team_lv: 97, power: 1400000, fight_value: 1400000, def_heros_1: defHerosJson1, def_heros_2: defHerosJson2, def_heros_3: defHerosJson3 }
+            ]);
+            return true;
+        }
+
+        if (cmd === "CrossPlayerArenaInfo" || cmd === SVRCMD.CrossPlayerArenaInfo) {
+            var targetPid = Number((params && params[2]) || (params && params[0]) || 4520);
+            var defHerosJson1 = JSON.stringify([this.createDefaultHeroRecord(11060), this.createDefaultHeroRecord(11000), this.createDefaultHeroRecord(10510)]);
+            var defHerosJson2 = JSON.stringify([this.createDefaultHeroRecord(10650), this.createDefaultHeroRecord(10710), this.createDefaultHeroRecord(10020)]);
+            var defHerosJson3 = JSON.stringify([this.createDefaultHeroRecord(10010), this.createDefaultHeroRecord(10030), this.createDefaultHeroRecord(10040)]);
             respond({
-                fighters: [
-                    { player_id: 4520, player_name: "Madara Uchiha", server_id: 2, rank: 2, score: 2350, icon: 11060, team_lv: 99, power: 1500000 },
-                    { player_id: 4521, player_name: "Hashirama Senju", server_id: 1, rank: 3, score: 2300, icon: 11000, team_lv: 98, power: 1450000 },
-                    { player_id: 4522, player_name: "Minato Namikaze", server_id: 3, rank: 4, score: 2250, icon: 10710, team_lv: 97, power: 1400000 }
-                ]
+                player_id: targetPid,
+                fighter_id: targetPid,
+                server_id: 2,
+                team_num: 2,
+                win_count: 50,
+                rank: 2,
+                player_name: "Madara Uchiha",
+                player_lv: 99,
+                icon: 11060,
+                fight_value: 1500000,
+                def_heros_1: defHerosJson1,
+                def_heros_2: defHerosJson2,
+                def_heros_3: defHerosJson3
             });
             return true;
         }
 
-        if (cmd === "CrossPlayerArenaInfo") {
-            var targetPid = Number((params && params[0]) || 4520);
-            respond({
-                player: { player_id: targetPid, player_name: "Madara Uchiha", server_id: 2, rank: 2, score: 2350, icon: 11060, team_lv: 99 },
-                heros: [
-                    { hero_id: 11060, lv: 99, quality: 18, star: 5 },
-                    { hero_id: 11000, lv: 99, quality: 18, star: 5 },
-                    { hero_id: 10510, lv: 99, quality: 18, star: 5 }
-                ]
-            });
-            return true;
-        }
-
-        if (cmd === "CrossSetArenaLineup") {
+        if (cmd === "CrossSetArenaLineup" || cmd === SVRCMD.CrossSetArenaLineup) {
             this.data.cross_arena_lineup = (params && params[0]) ? params[0] : [10010, 10020, 10030, 10040, 10050];
             respond({ status: 1 });
             return true;
         }
 
-        if (cmd === "CrossArenaFight") {
+        if (cmd === "CrossArenaFight" || cmd === SVRCMD.CrossArenaFight) {
             this.data.cross_arena_rank = 1;
             this.data.cross_arena_score = Number(this.data.cross_arena_score || 1600) + 30;
             this.addCurrency(10, 100, queuePush);
+
+            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+            var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [11060, 11000, 10510], true, 6);
+            var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10650, 10710, 10020], true, 6);
+
             respond({
                 useZip: false,
                 isWin: 1,
                 rank: 1,
                 score: this.data.cross_arena_score,
-                fightData1: "{\"0\":{\"e\":[[\"__b6\",100000000001,40651,21,0,11]]}}",
-                fightData2: "{\"0\":{\"e\":[[\"__b6\",100000000001,40651,21,0,11]]}}"
+                fightData1: fData1,
+                fightData2: fData2
             });
             return true;
         }
@@ -1237,18 +1407,22 @@ const ArenaAndTowerHandler = {
             return true;
         }
 
-        if (cmd === "CrossDarkArenaFight") {
+        if (cmd === "CrossDarkArenaFight" || cmd === SVRCMD.CrossDarkArenaFight) {
             this.data.cross_dark_rank = 1;
             this.data.cross_dark_score = Number(this.data.cross_dark_score || 1500) + 25;
             this.data.cross_dark_record_point = Number(this.data.cross_dark_record_point || 0) + 50;
             this.addCurrency(13, 120, queuePush);
             this.addCurrency(14, 120, queuePush);
+
+            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+            var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [11050, 10650, 10710], true, 6);
+
             respond({
                 useZip: false,
                 isWin: 1,
                 rank: 1,
                 score: this.data.cross_dark_score,
-                fightData1: "{\"0\":{\"e\":[[\"__b6\",100000000001,20682,8,4,38]]}}"
+                fightData1: fData1
             });
             return true;
         }

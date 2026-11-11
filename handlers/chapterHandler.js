@@ -281,7 +281,7 @@ function handleChapter(cmd, params, respond, queuePush) {
     }
 
     if (cmd === SVRCMD.HasSepcialChapterOpenInEvent) {
-        respond({ hasOpenInEvent: true });
+        respond({ hasOpenInEvent: false });
         return true;
     }
     if (cmd === SVRCMD.GetChapterPerDayCountMulti) {

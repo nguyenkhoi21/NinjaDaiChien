@@ -307,6 +307,7 @@ class PlayerSession {
     }
 
     handle(cmd, params) {
+        console.log(`[REQ] ${this.playerId} (${this.username}) -> ${cmd} :`, JSON.stringify(params || []));
         if (cmd === "Login" || (typeof SVRCMD !== "undefined" && cmd === SVRCMD.Login)) {
             this.hasLoggedIn = true;
             const uid = (params && params[0]) ? String(params[0]) : "1";
@@ -370,6 +371,7 @@ class PlayerSession {
         };
 
         const respond = (respData, err) => {
+            console.log(`[RESP] ${this.playerId} (${this.username}) <- ${cmd} :`, JSON.stringify(respData ? Object.keys(respData) : respData), err ? JSON.stringify(err) : "OK");
             for (const q of queue) {
                 this.sendPacket(q.func_name, q.data);
             }
