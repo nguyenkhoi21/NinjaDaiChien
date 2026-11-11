@@ -64,7 +64,9 @@ const Config = {
     hero_quality_up: {},
     bamen: {},
     ninja_tool: {},
-    tower: {}
+    tower: {},
+    skill_effect: {},
+    skillEffect: {}
 };
 
 function loadConfigData() {
@@ -352,6 +354,13 @@ function loadConfigData() {
         if (Array.isArray(data.tower)) {
             for (const sd of data.tower) {
                 Config.tower[sd.id] = Object.assign({}, sd);
+            }
+        }
+
+        if (Array.isArray(data.skill_effect)) {
+            for (const sd of data.skill_effect) {
+                Config.skill_effect[sd.id] = Object.assign({}, sd);
+                Config.skillEffect[sd.id] = Object.assign({}, sd);
             }
         }
 

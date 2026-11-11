@@ -13,49 +13,83 @@ class PackageWriter {
     getPackage() { return this.buf; }
 }
 
-function getHeroSkillIds(hid) {
+function getHeroSkillIds(heroOrId) {
+    var hid = (typeof heroOrId === "object" && heroOrId) ? Number(heroOrId.id || heroOrId.hero_id) : Number(heroOrId);
+    var hObj = (typeof heroOrId === "object" && heroOrId) ? heroOrId : null;
+    var sks = [];
     if (typeof Config !== "undefined" && Config.hero && Config.hero[hid]) {
         var hCfg = Config.hero[hid];
-        var sks = [];
+        var defaultLv = (hObj && (hObj.lv || hObj.level)) ? Number(hObj.lv || hObj.level) : 80;
         for (var k = 1; k <= 4; k++) {
             var skid = hCfg["skill_id_" + k] || hCfg["skill_" + k];
             if (skid && Config.skill && Config.skill[skid]) {
-                sks.push({ id: skid, lv: 80, status: 1 });
+                var skLv = defaultLv;
+                if (hObj && hObj["skill_" + k + "_lv"] !== undefined) {
+                    skLv = Number(hObj["skill_" + k + "_lv"]) || 1;
+                }
+                sks.push({ id: skid, lv: skLv, status: 1 });
             }
         }
-        return sks;
     }
-    return [];
+    return sks;
 }
 
-function writeHeroToBuffer(pw, uid, hid) {
-    var sks = getHeroSkillIds(hid);
+function writeHeroToBuffer(pw, uid, heroOrId) {
+    var hid = (typeof heroOrId === "object" && heroOrId) ? Number(heroOrId.id || heroOrId.hero_id) : Number(heroOrId);
+    var hObj = (typeof heroOrId === "object" && heroOrId) ? heroOrId : null;
+    var lv = (hObj && (hObj.lv || hObj.level)) ? Number(hObj.lv || hObj.level) : 80;
+    var quality = (hObj && hObj.quality) ? Number(hObj.quality) : 10;
+    
+    // Đảm bảo quality tồn tại trong Config.heroQuality cho hero hid
+    if (typeof Config !== "undefined" && Config.heroQuality) {
+        var foundQ = false;
+        for (var q = quality; q >= 1; q--) {
+            if (Config.heroQuality[q] && Config.heroQuality[q][hid]) {
+                quality = q;
+                foundQ = true;
+                break;
+            }
+        }
+        if (!foundQ) quality = 1;
+    }
+
+    var hp = (hObj && (hObj.hp || hObj.maxhp)) ? Number(hObj.hp || hObj.maxhp) : 100000;
+    var maxHp = (hObj && hObj.maxhp) ? Number(hObj.maxhp) : hp;
+    var atk = (hObj && hObj.atk) ? Number(hObj.atk) : 5000;
+    var def = (hObj && hObj.def) ? Number(hObj.def) : 2000;
+    var mp = (hObj && hObj.mp) ? Number(hObj.mp) : 5000;
+    var mpDef = (hObj && hObj.mp_def) ? Number(hObj.mp_def) : 2000;
+    var cri = (hObj && hObj.cri !== undefined) ? Math.round(Number(hObj.cri) * 100) : 2000;
+    var mpCri = (hObj && hObj.mp_cri !== undefined) ? Math.round(Number(hObj.mp_cri) * 100) : 2000;
+    var hasAwake = (hObj && hObj.has_awake) ? Number(hObj.has_awake) : (quality >= 11 ? 1 : 0);
+
+    var sks = getHeroSkillIds(heroOrId);
     pw.appendInt(uid);
     pw.appendInt(hid);
-    pw.appendInt(100000); // hp
-    pw.appendInt(80);     // level
-    pw.appendInt(10);     // quality
-    pw.appendInt(100000); // maxHp
-    pw.appendInt(5000);   // physicDmg
-    pw.appendInt(2000);   // physicDef
-    pw.appendInt(2000);   // physicCirt * 100
-    pw.appendInt(100);    // power
-    pw.appendInt(1000);   // maxPower
-    pw.appendInt(5000);   // magicDmg
-    pw.appendInt(2000);   // magicDef
-    pw.appendInt(2000);   // magicCirt * 100
-    pw.appendInt(300);    // moveSpeed
-    pw.appendInt(150);    // attackRange
-    pw.appendInt(100);    // attackSpeed
-    pw.appendInt(10);     // powerSpeed
-    pw.appendInt(0);      // randomsRec.length
+    pw.appendInt(Math.max(1000, hp));     // hp
+    pw.appendInt(lv);                     // level
+    pw.appendInt(quality);                // quality
+    pw.appendInt(Math.max(1000, maxHp));  // maxHp
+    pw.appendInt(atk);                    // physicDmg
+    pw.appendInt(def);                    // physicDef
+    pw.appendInt(cri);                    // physicCirt * 100
+    pw.appendInt(100);                    // power
+    pw.appendInt(1000);                   // maxPower
+    pw.appendInt(mp);                     // magicDmg
+    pw.appendInt(mpDef);                  // magicDef
+    pw.appendInt(mpCri);                  // magicCirt * 100
+    pw.appendInt(300);                    // moveSpeed
+    pw.appendInt(150);                    // attackRange
+    pw.appendInt(100);                    // attackSpeed
+    pw.appendInt(10);                     // powerSpeed
+    pw.appendInt(0);                      // randomsRec.length
     pw.appendByte(sks.length);
     for (var s = 0; s < sks.length; s++) {
         pw.appendInt(sks[s].id);
         pw.appendInt(sks[s].lv);
         pw.appendInt(sks[s].status);
     }
-    pw.appendByte(0);     // has_awake
+    pw.appendByte(hasAwake);              // has_awake
 }
 
 function generateCompetentHeroRecord(hid, level, quality, star) {
@@ -136,18 +170,52 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
         d: {}
     };
 
+    var aplace = [
+        { x: 430, y: 150 },
+        { x: 335, y: 75 },
+        { x: 240, y: 150 },
+        { x: 145, y: 75 },
+        { x: 50,  y: 150 }
+    ];
+    var dplace = [
+        { x: 1490, y: 151 },
+        { x: 1585, y: 76 },
+        { x: 1675, y: 151 },
+        { x: 1770, y: 76 },
+        { x: 1865, y: 151 }
+    ];
+
     var atkUnits = [];
     for (var i = 0; i < atkHeros.length; i++) {
+        var hEntry = atkHeros[i];
+        var hid = (typeof hEntry === "object" && hEntry) ? Number(hEntry.id || hEntry.hero_id) : Number(hEntry);
+        var heroHp = (typeof hEntry === "object" && hEntry && (hEntry.hp || hEntry.maxhp)) ? Number(hEntry.hp || hEntry.maxhp) : 100000;
+        var startPt = aplace[i] || { x: 300 + i * 35, y: 120 + (i % 3) * 35 };
+        var targetX = 850 - (i % 3) * 40;
+        
+        // Chọn kỹ năng hợp lệ có animation
+        var castableSkills = [hid]; // Basic attack always has animation
+        if (typeof Config !== "undefined" && Config.hero && Config.hero[hid]) {
+            var hCfg = Config.hero[hid];
+            for (var k = 1; k <= 3; k++) {
+                var skid = hCfg["skill_id_" + k] || hCfg["skill_" + k];
+                if (skid && Config.skillEffect && Config.skillEffect[skid] && Config.skillEffect[skid].index > 0) {
+                    castableSkills.push(skid);
+                }
+            }
+        }
+
         atkUnits.push({
             id: 1000 + i,
-            hid: atkHeros[i],
-            skills: getHeroSkillIds(atkHeros[i]),
-            startX: 300 + i * 35,
-            targetX: 840 - i * 25,
-            x: 300 + i * 35,
-            y: 120 + (i % 3) * 35,
-            hp: 100000,
-            maxHp: 100000,
+            hid: hid,
+            castableSkills: castableSkills,
+            startX: startPt.x,
+            startY: startPt.y,
+            targetX: targetX,
+            x: startPt.x,
+            y: startPt.y,
+            hp: heroHp,
+            maxHp: heroHp,
             mp: 100,
             dmgTotal: 0
         });
@@ -155,22 +223,52 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
 
     var defUnits = [];
     for (var j = 0; j < defHeros.length; j++) {
+        var hEntry = defHeros[j];
+        var hid = (typeof hEntry === "object" && hEntry) ? Number(hEntry.id || hEntry.hero_id) : Number(hEntry);
+        var heroHp = (typeof hEntry === "object" && hEntry && (hEntry.hp || hEntry.maxhp)) ? Number(hEntry.hp || hEntry.maxhp) : 100000;
+        var startPt = dplace[j] || { x: 1650 - j * 35, y: 120 + (j % 3) * 35 };
+        var targetX = 1080 + (j % 3) * 40;
+
+        var castableSkills = [hid];
+        if (typeof Config !== "undefined" && Config.hero && Config.hero[hid]) {
+            var hCfg = Config.hero[hid];
+            for (var k = 1; k <= 3; k++) {
+                var skid = hCfg["skill_id_" + k] || hCfg["skill_" + k];
+                if (skid && Config.skillEffect && Config.skillEffect[skid] && Config.skillEffect[skid].index > 0) {
+                    castableSkills.push(skid);
+                }
+            }
+        }
+
         defUnits.push({
             id: 2000 + j,
-            hid: defHeros[j],
-            skills: getHeroSkillIds(defHeros[j]),
-            startX: 1650 - j * 35,
-            targetX: 1100 + j * 25,
-            x: 1650 - j * 35,
-            y: 120 + (j % 3) * 35,
-            hp: 100000,
-            maxHp: 100000,
+            hid: hid,
+            castableSkills: castableSkills,
+            startX: startPt.x,
+            startY: startPt.y,
+            targetX: targetX,
+            x: startPt.x,
+            y: startPt.y,
+            hp: heroHp,
+            maxHp: heroHp,
             mp: 100,
             dmgTotal: 0
         });
     }
 
-    var clashTime = 1600; // ms to reach melee center
+    // Frame 0: Vị trí xuất phát ban đầu chuẩn aplace & dplace
+    var pMap0 = {};
+    for (var i = 0; i < atkUnits.length; i++) {
+        var u = atkUnits[i];
+        pMap0[String(u.id)] = [0, 1, Math.round(u.hp), Math.round(u.mp), u.startX, u.startY];
+    }
+    for (var j = 0; j < defUnits.length; j++) {
+        var u = defUnits[j];
+        pMap0[String(u.id)] = [0, -1, Math.round(u.hp), Math.round(u.mp), u.startX, u.startY];
+    }
+    replayObj["0"] = { p: pMap0 };
+
+    var clashTime = 1600; // ms để hai bên di chuyển vào vị trí giao chiến
     for (var t = 16; t <= maxframetime; t += 16) {
         var pMap = {};
         var eList = [];
@@ -197,8 +295,8 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
             }
         }
 
-        // Combat actions every 480ms after clash
-        if (t >= clashTime && (t % 480 === 0) && t < maxframetime - 1200) {
+        // Đánh nhau định kỳ sau khi chạm trán (mỗi 400ms)
+        if (t >= clashTime && (t % 400 === 0) && t < maxframetime - 1200) {
             var livingAtk = atkUnits.filter(function(u) { return u.hp > 0; });
             var livingDef = defUnits.filter(function(u) { return u.hp > 0; });
 
@@ -206,8 +304,8 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
                 var aUnit = livingAtk[Math.floor(Math.random() * livingAtk.length)];
                 var dUnit = livingDef[0];
 
-                var aSkillId = (aUnit.skills[1] && aUnit.skills[1].id) || (aUnit.skills[0] && aUnit.skills[0].id) || 20021;
-                var aDmg = Math.floor(Math.random() * 3000) + 4000;
+                var aSkillId = aUnit.castableSkills[Math.floor(Math.random() * aUnit.castableSkills.length)];
+                var aDmg = Math.floor(Math.random() * 4000) + 5000;
                 dUnit.hp = Math.max(0, dUnit.hp - aDmg);
                 aUnit.dmgTotal += aDmg;
                 aUnit.mp = Math.min(1000, aUnit.mp + 150);
@@ -237,8 +335,8 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
                 ]);
 
                 if (dUnit.hp > 0 && (!isWin || Math.random() < 0.6)) {
-                    var dSkillId = (dUnit.skills[1] && dUnit.skills[1].id) || (dUnit.skills[0] && dUnit.skills[0].id) || 20041;
-                    var dDmg = Math.floor(Math.random() * 2000) + 2000;
+                    var dSkillId = dUnit.castableSkills[Math.floor(Math.random() * dUnit.castableSkills.length)];
+                    var dDmg = Math.floor(Math.random() * 2500) + 2000;
                     var targetAtk = livingAtk[0];
                     if (!isWin) {
                         targetAtk.hp = Math.max(0, targetAtk.hp - dDmg * 2);
@@ -1100,13 +1198,31 @@ const ArenaAndTowerHandler = {
             this.addCurrency(10, 200, queuePush);
 
             // Xác định danh sách tướng phòng thủ của đối thủ mục tiêu
-            var defHeros1 = [10050, 10010, 10020, 10030, 10070];
-            var defHeros2 = [10020, 10040, 10060, 10080, 10110];
-            var defHeros3 = [10030, 10040, 10070, 10120, 10140];
+            var defHeros1 = [
+                generateCompetentHeroRecord(10050, 85, 12, 5),
+                generateCompetentHeroRecord(10010, 85, 12, 5),
+                generateCompetentHeroRecord(10020, 85, 12, 5),
+                generateCompetentHeroRecord(10030, 85, 12, 5),
+                generateCompetentHeroRecord(10070, 85, 12, 5)
+            ];
+            var defHeros2 = [
+                generateCompetentHeroRecord(10020, 82, 11, 4),
+                generateCompetentHeroRecord(10040, 82, 11, 4),
+                generateCompetentHeroRecord(10060, 82, 11, 4),
+                generateCompetentHeroRecord(10080, 82, 11, 4),
+                generateCompetentHeroRecord(10110, 82, 11, 4)
+            ];
+            var defHeros3 = [
+                generateCompetentHeroRecord(10030, 80, 10, 4),
+                generateCompetentHeroRecord(10040, 80, 10, 4),
+                generateCompetentHeroRecord(10070, 80, 10, 4),
+                generateCompetentHeroRecord(10120, 80, 10, 4),
+                generateCompetentHeroRecord(10140, 80, 10, 4)
+            ];
             if (targetFighterId === 102) {
-                defHeros1 = [10020, 10040, 10060, 10080, 10110];
+                defHeros1 = defHeros2;
             } else if (targetFighterId === 103) {
-                defHeros1 = [10030, 10040, 10070, 10120, 10140];
+                defHeros1 = defHeros3;
             }
 
             // Lấy danh sách tướng tấn công do người chơi chọn (params[2] e.g. "10020,10010,10030...")
@@ -1121,15 +1237,23 @@ const ArenaAndTowerHandler = {
                 myHeroIds = [10010, 10020, 10030, 10040, 10050];
             }
 
+            // Lấy thông tin thật từ tài khoản người chơi cho các hero được chọn
+            var myHeroPayloads = myHeroIds.map(function(hid) {
+                return self.computeHeroPayload(hid);
+            });
+
             if (cmd === SVRCMD.DarkArenaFight) {
                 var curRank = Number(this.data.dark_arena_rank || 100);
                 var newRank = Math.max(1, curRank - 1);
                 this.data.dark_arena_rank = newRank;
                 this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
                 this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
-                var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), defHeros1, true, 12, 1001);
-                var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5), defHeros2, true, 12, 1002);
-                var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15).length > 0 ? myHeroIds.slice(10, 15) : myHeroIds.slice(0, 5), defHeros3, true, 12, 1003);
+                var atk1 = myHeroPayloads.slice(0, 5);
+                var atk2 = myHeroPayloads.slice(5, 10).length > 0 ? myHeroPayloads.slice(5, 10) : atk1;
+                var atk3 = myHeroPayloads.slice(10, 15).length > 0 ? myHeroPayloads.slice(10, 15) : atk1;
+                var fData1 = generateBattleReplayJson(atk1, defHeros1, true, 12, 1001);
+                var fData2 = generateBattleReplayJson(atk2, defHeros2, true, 12, 1002);
+                var fData3 = generateBattleReplayJson(atk3, defHeros3, true, 12, 1003);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
@@ -1149,7 +1273,8 @@ const ArenaAndTowerHandler = {
                 this.data.arena_rank = newRank;
                 this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
                 var fightSeed = Math.floor(Math.random() * 900000) + 100000;
-                var fData = generateBattleReplayJson(myHeroIds.slice(0, 5), defHeros1, true, 12, fightSeed);
+                var atk1 = myHeroPayloads.slice(0, 5);
+                var fData = generateBattleReplayJson(atk1, defHeros1, true, 12, fightSeed);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
