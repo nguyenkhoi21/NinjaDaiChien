@@ -108,6 +108,25 @@ function handleChapter(cmd, params, respond, queuePush) {
         if (!isNaN(cid) && cid >= 50000) {
             this.data.last_fight_cid = cid;
         }
+
+        // Kiểm tra điều kiện Level và Ngày mở của Ải
+        if (typeof Config !== "undefined" && Config.chapter && Config.chapter[cid]) {
+            const cCfg = Config.chapter[cid];
+            const pLv = Number(this.data.team_lv || 1);
+            if (cCfg.lv_limit && pLv < Number(cCfg.lv_limit)) {
+                return respond({}, { code: 1, msg: "Cấp Đội chưa đạt Lv." + cCfg.lv_limit + " để mở ải này!" }), true;
+            }
+            if (cCfg.open_weekday && cCfg.open_weekday !== "0") {
+                const nowVN = new Date(Date.now() + 7 * 3600 * 1000);
+                let curDay = nowVN.getUTCDay(); // 0 is Sunday, 1..6 is Mon..Sat
+                if (curDay === 0) curDay = 7;
+                const openDays = String(cCfg.open_weekday).split("/").map(Number);
+                if (openDays.indexOf(curDay) === -1) {
+                    return respond({}, { code: 1, msg: "Ải này hôm nay chưa mở (Mở vào Thứ: " + cCfg.open_weekday + ")!" }), true;
+                }
+            }
+        }
+
         if (params && params[2]) {
             this.data.last_fight_heros = String(params[2]).split(",");
         }
@@ -176,6 +195,32 @@ function handleChapter(cmd, params, respond, queuePush) {
         this.data.last_fight_drops = null;
 
         respond({ isFirst3Star: isFirst3Star, gold: goldReward, exp: expReward, items: dropItems });
+        return true;
+    }
+
+    if (cmd === SVRCMD.AfterSpecialFight) {
+        let isWin = 1;
+        if (params && params.length >= 2) {
+            isWin = Number(params[1] ? 1 : 0);
+        }
+        if (!isWin) {
+            respond({ isFirst3Star: false, gold: 0, exp: 0, items: [] });
+            return true;
+        }
+
+        const cid = Number(this.data.last_fight_cid || 55013);
+        const chCfg = (typeof Config !== "undefined" && Config.chapter && Config.chapter[cid]) ? Config.chapter[cid] : null;
+        const goldGain = chCfg ? Number(chCfg.coin || 20000) : 20000;
+        const expGain = chCfg ? Number(chCfg.team_exp || 6) : 6;
+        const spCost = chCfg ? Number(chCfg.cost_sp || 6) : 6;
+        this.deductSp(Math.min(Number(this.data.sp || 0), spCost), null);
+        this.addGold(goldGain, null);
+        this.addTeamExp(expGain, null);
+        updateChapterProgress(this.data.chapters, cid, 3);
+        recordDailyChapterTask(this, cid, 1);
+        const dropItems = rollChapterDrops(this, cid, queuePush, true);
+        queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+        respond({ isFirst3Star: false, gold: goldGain, exp: expGain, items: dropItems });
         return true;
     }
 

@@ -103,10 +103,10 @@ const OfflineServer = Object.assign(
             if (!this.data.expedition_diff) this.data.expedition_diff = 1;
             if (!this.data.expedition_picked) this.data.expedition_picked = {};
             if (!this.data.guild_skills) this.data.guild_skills = { hp: 0, atk: 0, def: 0 };
-            if (this.data.group_id === undefined) this.data.group_id = 1;
-            if (!this.data.group_name) this.data.group_name = "Làng Lá";
-            if (!this.data.group_level) this.data.group_level = 1;
-            if (!this.data.group_role) this.data.group_role = 1;
+            if (this.data.group_id === undefined) this.data.group_id = 0;
+            if (this.data.group_name === undefined) this.data.group_name = "";
+            if (this.data.group_level === undefined) this.data.group_level = 0;
+            if (this.data.group_role === undefined) this.data.group_role = 0;
             if (!this.data.tower_cur_layer) this.data.tower_cur_layer = 1;
             if (!this.data.tower_layers) this.data.tower_layers = {};
             if (!this.data.tower_heros) this.data.tower_heros = {};
@@ -126,11 +126,13 @@ const OfflineServer = Object.assign(
                 vip_lv: 0,
                 vip_exp: 0,
                 team_name: "Nhẫn Giả",
-                icon: 10010,
-                guide_step: 9999,
+                icon: 10020,
+                guide_step: 0,
                 guide_vars: { releaseSkill: 1, callHero: 1 },
                 heros: {
-                    10010: this.createDefaultHeroRecord(10010)
+                    10020: this.createDefaultHeroRecord(10020),
+                    10040: this.createDefaultHeroRecord(10040),
+                    10250: this.createDefaultHeroRecord(10250)
                 },
                 items: {},
                 equip: {},
@@ -155,17 +157,17 @@ const OfflineServer = Object.assign(
                 expedition_diff: 1,
                 expedition_picked: {},
                 expedition_hero_info: "",
-                group_id: 1,
-                group_name: "Làng Lá",
-                group_level: 1,
+                group_id: 0,
+                group_name: "",
+                group_level: 0,
                 group_exp: 0,
-                group_role: 1,
+                group_role: 0,
                 group_contribution: 0,
                 group_fund: 0,
-                group_resource: 10000,
+                group_resource: 0,
                 group_icon: 20806,
                 group_capacity: 30,
-                group_size: 5,
+                group_size: 0,
                 group_join_type: 1,
                 group_min_lv: 30,
                 guild_skills: { hp: 0, atk: 0, def: 0 },

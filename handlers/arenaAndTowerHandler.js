@@ -26,31 +26,61 @@ const ArenaAndTowerHandler = {
             var reqLayer = (cmd === SVRCMD.GetTowerLayer && params && params[0]) ? Number(params[0]) : curLayer;
             if (!this.data.tower_layers) this.data.tower_layers = {};
             if (!this.data.tower_layers[reqLayer]) {
-                var enemyIds = [10010, 10020, 10040];
+                var enemyIds = [10020, 10040, 10250];
                 var enemyHeros = [];
-                for (var ei = 0; ei < enemyIds.length; ei++) {
-                    var eh = this.createDefaultHeroRecord(enemyIds[ei]);
-                    eh.lv = Math.max(10, reqLayer * 3);
-                    eh.level = eh.lv;
-                    eh.quality = Math.min(10, 1 + Math.floor(reqLayer / 3));
-                    eh.hp = 1500 + reqLayer * 500;
-                    eh.maxhp = eh.hp;
-                    eh.atk = 120 + reqLayer * 40;
-                    eh.def = 40 + reqLayer * 15;
-                    eh.mp = 100 + reqLayer * 35;
-                    eh.mp_def = 40 + reqLayer * 15;
-                    eh.cri = 10;
-                    eh.mp_cri = 10;
-                    eh.power = 0;
-                    enemyHeros.push(eh);
+                var enemyName = "Thủ Vệ Tầng " + reqLayer;
+                var enemyIcon = 80110020;
+                var enemyLv = Math.max(10, reqLayer * 3);
+
+                // Nếu là Tầng 1: Lấy thông tin người chơi top Đấu Trường, nếu không có lấy bot
+                if (reqLayer === 1) {
+                    var topPlayer = null;
+                    if (typeof playerDb !== "undefined") {
+                        for (var pk in playerDb) {
+                            var pd = playerDb[pk];
+                            if (pd && Number(pd.uid) !== this.getNumericId() && pd.heros && Object.keys(pd.heros).length > 0) {
+                                topPlayer = pd;
+                                break;
+                            }
+                        }
+                    }
+                    if (topPlayer) {
+                        enemyName = topPlayer.team_name || "Vô Địch Lôi Đài";
+                        enemyIcon = Number(topPlayer.icon || 80110020);
+                        enemyLv = Number(topPlayer.team_lv || 60);
+                        var hKeys = Object.keys(topPlayer.heros).slice(0, 5);
+                        for (var hi = 0; hi < hKeys.length; hi++) {
+                            enemyHeros.push(this.computeHeroPayload(hKeys[hi]));
+                        }
+                    }
                 }
+
+                if (enemyHeros.length === 0) {
+                    for (var ei = 0; ei < enemyIds.length; ei++) {
+                        var eh = this.createDefaultHeroRecord(enemyIds[ei]);
+                        eh.lv = Math.max(10, reqLayer * 3);
+                        eh.level = eh.lv;
+                        eh.quality = Math.min(10, 1 + Math.floor(reqLayer / 3));
+                        eh.hp = 1500 + reqLayer * 500;
+                        eh.maxhp = eh.hp;
+                        eh.atk = 120 + reqLayer * 40;
+                        eh.def = 40 + reqLayer * 15;
+                        eh.mp = 100 + reqLayer * 35;
+                        eh.mp_def = 40 + reqLayer * 15;
+                        eh.cri = 10;
+                        eh.mp_cri = 10;
+                        eh.power = 0;
+                        enemyHeros.push(eh);
+                    }
+                }
+
                 this.data.tower_layers[reqLayer] = {
                     player_id: this.getNumericId(),
                     layer: reqLayer,
                     has_pass: 0,
-                    player_icon: 80110010,
-                    player_lv: Math.max(10, reqLayer * 3),
-                    player_name: "Thủ Vệ Tầng " + reqLayer,
+                    player_icon: enemyIcon,
+                    player_lv: enemyLv,
+                    player_name: enemyName,
                     box_1_id: 0,
                     box_2_id: 0,
                     box_3_id: 0,
@@ -81,9 +111,33 @@ const ArenaAndTowerHandler = {
             var heroObj = (params && params[1]) || {};
             this.data.tower_heros = heroObj;
             var curLayer = Number(this.data.tower_cur_layer || 1);
-            if (this.data.tower_layers && this.data.tower_layers[curLayer]) {
-                this.data.tower_layers[curLayer].has_pass = 1;
+            if (!this.data.tower_layers) this.data.tower_layers = {};
+            if (!this.data.tower_layers[curLayer]) {
+                this.data.tower_layers[curLayer] = { layer: curLayer };
             }
+            this.data.tower_layers[curLayer].has_pass = 1;
+
+            // Tự động mở khóa tầng tiếp theo
+            if (curLayer < 35) {
+                var nextLayer = curLayer + 1;
+                this.data.tower_cur_layer = nextLayer;
+                if (!this.data.tower_layers[nextLayer]) {
+                    this.data.tower_layers[nextLayer] = {
+                        player_id: this.getNumericId(),
+                        layer: nextLayer,
+                        has_pass: 0,
+                        player_icon: 80110010,
+                        player_lv: Math.max(10, nextLayer * 3),
+                        player_name: "Thủ Vệ Tầng " + nextLayer,
+                        box_1_id: 0,
+                        box_2_id: 0,
+                        box_3_id: 0,
+                        box_4_id: 0,
+                        heros: "[]"
+                    };
+                }
+            }
+
             this.data.daily_counts["PLAYER_DIALY_TASK_9"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_9"] || 0) + 1;
             respond({ status: 1 });
             return true;
@@ -716,26 +770,69 @@ const ArenaAndTowerHandler = {
 
         if (cmd === SVRCMD.SearchTreasure) {
             var nowSec = Math.floor(Date.now() / 1000);
-            var oppId = 200 + Math.floor(Math.random() * 50);
-            var oppMine = {
-                id: Math.floor(Math.random() * 10) + 1,
-                status: 1,
-                types: Math.floor(Math.random() * 3) + 1,
-                can_pick: 0,
-                has_pick: 0,
-                hero_ids: "10070,10400,10120,10200,10230",
-                player_id: oppId,
-                player_lv: Math.min(100, Math.max(50, Number(this.data.team_lv || 60))),
-                player_name: "Nhẫn Giả " + oppId,
-                player_icon: 1010020,
-                fight_value: 5800 + Math.floor(Math.random() * 2000),
-                create_time: nowSec - 3600,
-                plunder_time: nowSec + 10800,
-                robbed_at: 0,
-                is_plundered: 0,
-                heros: "[]"
-            };
-            respond({ treasure: oppMine });
+            var myUid = this.getNumericId();
+            var targetMine = null;
+
+            // Tìm một người chơi khác đang chiếm cứ điểm khai thác (không lấy bản thân)
+            if (typeof playerDb !== "undefined") {
+                for (var pKey in playerDb) {
+                    var pData = playerDb[pKey];
+                    if (pData && Number(pData.uid) !== myUid && Array.isArray(pData.treasures) && pData.treasures.length > 0) {
+                        for (var ti = 0; ti < pData.treasures.length; ti++) {
+                            var tr = pData.treasures[ti];
+                            if (tr && tr.status === 1) {
+                                targetMine = {
+                                    id: tr.id || 1,
+                                    status: 1,
+                                    types: tr.types || 1,
+                                    can_pick: 0,
+                                    has_pick: 0,
+                                    hero_ids: tr.hero_ids || "10020,10040,10250",
+                                    player_id: Number(pData.uid || 201),
+                                    player_lv: Number(pData.team_lv || 50),
+                                    player_name: pData.team_name || "Nhẫn Giả",
+                                    player_icon: Number(pData.icon || 10020),
+                                    fight_value: tr.fight_value || 6000,
+                                    create_time: tr.create_time || (nowSec - 1800),
+                                    plunder_time: nowSec + 10800,
+                                    robbed_at: 0,
+                                    is_plundered: 0,
+                                    heros: tr.heros || "[]"
+                                };
+                                break;
+                            }
+                        }
+                    }
+                    if (targetMine) break;
+                }
+            }
+
+            // Nếu không có người chơi nào chiếm thì sinh Bot chiếm giữ cứ điểm
+            if (!targetMine) {
+                var oppId = 200 + Math.floor(Math.random() * 50);
+                var botNames = ["Uchiha Shisui", "Hidan", "Kakuzu", "Deidara", "Sasori", "Kisame"];
+                var randomName = botNames[Math.floor(Math.random() * botNames.length)];
+                targetMine = {
+                    id: Math.floor(Math.random() * 10) + 1,
+                    status: 1,
+                    types: Math.floor(Math.random() * 3) + 1,
+                    can_pick: 0,
+                    has_pick: 0,
+                    hero_ids: "10020,10040,10250,10070,10120",
+                    player_id: oppId,
+                    player_lv: Math.min(100, Math.max(30, Number(this.data.team_lv || 40))),
+                    player_name: randomName,
+                    player_icon: 10020,
+                    fight_value: 4500 + Math.floor(Math.random() * 2000),
+                    create_time: nowSec - 3600,
+                    plunder_time: nowSec + 10800,
+                    robbed_at: 0,
+                    is_plundered: 0,
+                    heros: "[]"
+                };
+            }
+
+            respond({ treasure: targetMine });
             return true;
         }
 
@@ -910,10 +1007,69 @@ const ArenaAndTowerHandler = {
             return true;
         }
 
-        if (cmd === SVRCMD.CrossArenaRank || cmd === "CrossArenaRank" || cmd === "CrossArenaAllRankInfo") {
+        if (cmd === SVRCMD.CrossArenaRank || cmd === "CrossArenaRank" || cmd === "CrossArenaAllRankInfo" || cmd === SVRCMD.CrossArenaAllRankInfo) {
+            if (cmd === "CrossArenaAllRankInfo" || cmd === SVRCMD.CrossArenaAllRankInfo) {
+                var pLv = Number(this.data.team_lv || 1);
+                var minLv = Math.max(1, Math.floor(pLv / 10) * 10);
+                var maxLv = minLv + 9;
+                var myScore = Number(this.data.cross_arena_score || 1600);
+                var allGroupInfo = {
+                    my_info: {
+                        cur_rank: Number(this.data.cross_arena_rank || 1),
+                        lv: 1,
+                        min_lv: minLv,
+                        max_lv: maxLv,
+                        hour_point: 50,
+                        total_point: myScore
+                    },
+                    "1": {
+                        lv: 1,
+                        min_lv: minLv,
+                        max_lv: maxLv,
+                        data: {
+                            icon: 10020,
+                            player_name: this.data.team_name || "Nhẫn Giả",
+                            server_id: 1
+                        }
+                    },
+                    "2": {
+                        lv: 2,
+                        min_lv: 50,
+                        max_lv: 69,
+                        data: {
+                            icon: 11060,
+                            player_name: "Madara Uchiha",
+                            server_id: 2
+                        }
+                    },
+                    "3": {
+                        lv: 3,
+                        min_lv: 70,
+                        max_lv: 89,
+                        data: {
+                            icon: 11000,
+                            player_name: "Hashirama Senju",
+                            server_id: 1
+                        }
+                    },
+                    "4": {
+                        lv: 4,
+                        min_lv: 90,
+                        max_lv: 100,
+                        data: {
+                            icon: 10710,
+                            player_name: "Minato Namikaze",
+                            server_id: 3
+                        }
+                    }
+                };
+                respond(allGroupInfo);
+                return true;
+            }
+
             respond({
                 ranks: [
-                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, score: 2400, team_lv: Number(this.data.team_lv || 100) },
+                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 10020, score: 2400, team_lv: Number(this.data.team_lv || 100) },
                     { rank: 2, player_id: 4520, player_name: "Madara", server_id: 2, icon: 11060, score: 2350, team_lv: 99 },
                     { rank: 3, player_id: 4521, player_name: "Hashirama", server_id: 1, icon: 11000, score: 2300, team_lv: 98 }
                 ]
@@ -986,10 +1142,69 @@ const ArenaAndTowerHandler = {
             return true;
         }
 
-        if (cmd === "CrossDarkArenaRank" || cmd === "CrossDarkArenaAllRankInfo") {
+        if (cmd === "CrossDarkArenaRank" || cmd === "CrossDarkArenaAllRankInfo" || cmd === SVRCMD.CrossDarkArenaAllRankInfo) {
+            if (cmd === "CrossDarkArenaAllRankInfo" || cmd === SVRCMD.CrossDarkArenaAllRankInfo) {
+                var pLv = Number(this.data.team_lv || 1);
+                var minLv = Math.max(1, Math.floor(pLv / 10) * 10);
+                var maxLv = minLv + 9;
+                var myScore = Number(this.data.cross_dark_score || 1500);
+                var allGroupInfo = {
+                    my_info: {
+                        cur_rank: Number(this.data.cross_dark_rank || 1),
+                        lv: 1,
+                        min_lv: minLv,
+                        max_lv: maxLv,
+                        hour_point: 50,
+                        total_point: myScore
+                    },
+                    "1": {
+                        lv: 1,
+                        min_lv: minLv,
+                        max_lv: maxLv,
+                        data: {
+                            icon: 10020,
+                            player_name: this.data.team_name || "Nhẫn Giả",
+                            server_id: 1
+                        }
+                    },
+                    "2": {
+                        lv: 2,
+                        min_lv: 50,
+                        max_lv: 69,
+                        data: {
+                            icon: 11050,
+                            player_name: "Obito Lục Đạo",
+                            server_id: 2
+                        }
+                    },
+                    "3": {
+                        lv: 3,
+                        min_lv: 70,
+                        max_lv: 89,
+                        data: {
+                            icon: 10650,
+                            player_name: "Jiraiya Tiên Nhân",
+                            server_id: 1
+                        }
+                    },
+                    "4": {
+                        lv: 4,
+                        min_lv: 90,
+                        max_lv: 100,
+                        data: {
+                            icon: 11000,
+                            player_name: "Itachi Susanoo",
+                            server_id: 3
+                        }
+                    }
+                };
+                respond(allGroupInfo);
+                return true;
+            }
+
             respond({
                 ranks: [
-                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 30610141, score: 2100, team_lv: Number(this.data.team_lv || 100) },
+                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 10020, score: 2100, team_lv: Number(this.data.team_lv || 100) },
                     { rank: 2, player_id: 734, player_name: "Obito Lục Đạo", server_id: 2, icon: 11050, score: 2050, team_lv: 98 }
                 ]
             });

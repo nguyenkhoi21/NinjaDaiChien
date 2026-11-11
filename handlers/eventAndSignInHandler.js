@@ -404,6 +404,9 @@ const EventAndSignInHandler = {
 
         // 6. Quà Nạp Đầu & Quà VIP (ReceiveFirstRecharge, ReceiveVipGiftBag)
         if (cmd === SVRCMD.ReceiveFirstRecharge) {
+            if (Number(this.data.had_recharge_gift) === 2) {
+                return respond({}, { code: 1, msg: "Bạn đã nhận quà nạp lần đầu rồi!" }), true;
+            }
             this.data.had_recharge_gift = 2;
             this.addGold(500000, queuePush);
             this.addOrConvertHero(10050, queuePush);
@@ -414,6 +417,9 @@ const EventAndSignInHandler = {
 
         if (cmd === SVRCMD.ReceiveVipGiftBag) {
             var vipLv = Number((params && params[0]) || 5);
+            if (Number(this.data["had_vip" + vipLv + "_gift"]) === 2) {
+                return respond({}, { code: 1, msg: "Bạn đã nhận quà VIP " + vipLv + " rồi!" }), true;
+            }
             this.data["had_vip" + vipLv + "_gift"] = 2;
             this.addGold(1000000, queuePush);
             queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
@@ -843,10 +849,16 @@ const EventAndSignInHandler = {
                 if (!this.canDeductGold(5000)) return respond({}, { code: 1, msg: "Không đủ Vàng!" }), true;
                 this.deductGold(5000, queuePush);
             }
+
+            // Tính số lượng nhiệm vụ tối đa mỗi ngày theo cấp Đội và cấp VIP (từ 20 đến 35 nhiệm vụ)
+            var pLv = Number(this.data.team_lv || 1);
+            var pVip = Number(this.data.vip_lv || 0);
+            var maxTaskCount = 20 + Math.floor(pLv / 10) + Math.min(10, pVip);
+
             respond({
                 task_id: this.data.cur_task_id,
                 today_count: Number(this.data.task_today_count || 0),
-                total_count: 10,
+                total_count: maxTaskCount,
                 gold_refresh_count: 0
             });
             return true;

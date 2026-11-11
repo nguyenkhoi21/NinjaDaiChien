@@ -3,6 +3,58 @@
 // (Guild, GuildGrowth/Donate/Skills, Worship, Hires, GroupFight, CsGroupFight, CrossUnionWar)
 // ============================================================================
 
+const globalGuilds = {};
+let guildIdCounter = 100;
+
+function getGuild(gid) {
+    gid = Number(gid);
+    if (!gid) return null;
+    if (!globalGuilds[gid]) {
+        if (gid === 1) {
+            globalGuilds[1] = {
+                id: 1,
+                name: "Làng Lá",
+                level: 5,
+                exp: 1500,
+                notice: "Kế thừa Hỏa Chí! Chào mừng tất cả Nhẫn Giả.",
+                president_id: 101,
+                created_at: 1793709061,
+                icon: 20806,
+                capacity: 30,
+                join_type: 1,
+                min_lv: 30,
+                resource: 50000,
+                members: [
+                    { player_id: 101, team_name: "Uchiha Sasuke", team_lv: 95, icon: 10020, role: 1, contribution: 8500, last_signin_time: Math.floor(Date.now() / 1000) - 1800 },
+                    { player_id: 102, team_name: "Haruno Sakura", team_lv: 92, icon: 10040, role: 2, contribution: 6200, last_signin_time: Math.floor(Date.now() / 1000) - 3600 },
+                    { player_id: 103, team_name: "Hatake Kakashi", team_lv: 98, icon: 10010, role: 3, contribution: 7800, last_signin_time: Math.floor(Date.now() / 1000) - 7200 }
+                ],
+                apply_logs: []
+            };
+        } else if (gid === 2) {
+            globalGuilds[2] = {
+                id: 2,
+                name: "Akatsuki",
+                level: 6,
+                exp: 3000,
+                notice: "Thế giới sẽ biết nỗi đau.",
+                president_id: 201,
+                created_at: 1793709061,
+                icon: 20002,
+                capacity: 30,
+                join_type: 1,
+                min_lv: 40,
+                resource: 80000,
+                members: [
+                    { player_id: 201, team_name: "Pain Tendo", team_lv: 99, icon: 10010, role: 1, contribution: 12000, last_signin_time: Math.floor(Date.now() / 1000) - 900 }
+                ],
+                apply_logs: []
+            };
+        }
+    }
+    return globalGuilds[gid] || null;
+}
+
 const GuildHandler = {
     handleGuildCommand: function(cmd, params, respond, queuePush) {
         var nowTs = Math.floor(Date.now() / 1000);
@@ -88,28 +140,36 @@ const GuildHandler = {
         }
 
         if (cmd === SVRCMD.PlayerGroupInfo) {
-            if (this.data.group_id && Number(this.data.group_id) > 0) {
+            var myGid = Number(this.data.group_id || 0);
+            if (myGid > 0) {
+                var gObj = getGuild(myGid);
+                if (!gObj) {
+                    this.data.group_id = 0;
+                    this.data.group_name = "";
+                    this.data.group_role = 0;
+                    return respond({}), true;
+                }
                 respond({
                     playerGroup: {
-                        group_id: Number(this.data.group_id || 1),
+                        group_id: gObj.id,
                         player_id: this.getNumericId(),
-                        role: Number(this.data.group_role || 1),
+                        role: Number(this.data.group_role || 4),
                         contribution: Number(this.data.group_contribution || 0)
                     },
                     group: {
-                        id: Number(this.data.group_id || 1),
-                        name: this.data.group_name || "Làng Lá",
-                        level: Number(this.data.group_level || 1),
-                        exp: Number(this.data.group_exp || 0),
-                        notice: this.data.group_notice || "Chào mừng các Nhẫn Giả đến với Bang Hội!",
-                        president_id: Number(this.data.group_role === 1 ? this.getNumericId() : 100),
-                        created_at: 1793709061,
-                        icon: Number(this.data.group_icon || 20806),
-                        capacity: 30,
-                        join_type: Number(this.data.group_join_type || 1),
-                        min_lv: Number(this.data.group_min_lv || 30),
-                        size: Number(this.data.group_size || 5),
-                        resource: Number(this.data.group_resource || 10000),
+                        id: gObj.id,
+                        name: gObj.name,
+                        level: Number(gObj.level || 1),
+                        exp: Number(gObj.exp || 0),
+                        notice: gObj.notice || "",
+                        president_id: Number(gObj.president_id || 101),
+                        created_at: gObj.created_at || nowTs,
+                        icon: Number(gObj.icon || 20806),
+                        capacity: Number(gObj.capacity || 30),
+                        join_type: Number(gObj.join_type || 1),
+                        min_lv: Number(gObj.min_lv || 30),
+                        size: (gObj.members || []).length,
+                        resource: Number(gObj.resource || 10000),
                         last_opponent: "",
                         last_opponent_icon: 0,
                         last_point: 0,
@@ -124,48 +184,102 @@ const GuildHandler = {
         }
 
         if (cmd === "BestMatchGroups" || cmd === SVRCMD.BestMatchGroups) {
-            respond({
-                groups: [
-                    { id: 1, name: "Làng Lá", level: 5, icon: 20806, capacity: 30, size: 18, min_lv: 30, president_name: "Naruto", notice: "Kế thừa Hỏa Chí!" },
-                    { id: 2, name: "Akatsuki", level: 6, icon: 20002, capacity: 30, size: 24, min_lv: 40, president_name: "Pain", notice: "Thế giới sẽ biết nỗi đau." },
-                    { id: 3, name: "Uchiha Clan", level: 4, icon: 20003, capacity: 30, size: 15, min_lv: 30, president_name: "Itachi", notice: "Gia tộc Uchiha chiêu mộ." }
-                ]
-            });
+            var gList = [];
+            getGuild(1);
+            getGuild(2);
+            for (var k in globalGuilds) {
+                var g = globalGuilds[k];
+                var presName = "Bang Chủ";
+                if (g.members) {
+                    for (var mi = 0; mi < g.members.length; mi++) {
+                        if (g.members[mi].role === 1) {
+                            presName = g.members[mi].team_name;
+                            break;
+                        }
+                    }
+                }
+                gList.push({
+                    id: g.id,
+                    name: g.name,
+                    level: g.level,
+                    icon: g.icon,
+                    capacity: g.capacity,
+                    size: (g.members || []).length,
+                    min_lv: g.min_lv,
+                    president_name: presName,
+                    notice: g.notice
+                });
+            }
+            respond({ groups: gList });
             return true;
         }
 
         if (cmd === SVRCMD.CreateGroup) {
-            this.data.group_id = 11;
-            this.data.group_name = (params && params[0]) ? String(params[0]) : "Bang Hội";
-            this.data.group_icon = (params && params[1]) ? Number(params[1]) : 20806;
+            var newGid = ++guildIdCounter;
+            var gName = (params && params[0]) ? String(params[0]) : "Bang Hội Mới";
+            var gIcon = (params && params[1]) ? Number(params[1]) : 20806;
+            var myUid = this.getNumericId();
+
+            var newGuild = {
+                id: newGid,
+                name: gName,
+                level: 1,
+                exp: 0,
+                notice: "Chào mừng thành viên mới gia nhập Bang!",
+                president_id: myUid,
+                created_at: nowTs,
+                icon: gIcon,
+                capacity: 30,
+                join_type: 1,
+                min_lv: 30,
+                resource: 5000,
+                members: [
+                    {
+                        player_id: myUid,
+                        team_name: this.data.team_name || "Nhẫn Giả",
+                        team_lv: Number(this.data.team_lv || 1),
+                        icon: Number(this.data.icon || 10020),
+                        role: 1, // 会长 (Boss)
+                        contribution: 0,
+                        last_signin_time: nowTs
+                    }
+                ],
+                apply_logs: []
+            };
+            globalGuilds[newGid] = newGuild;
+
+            this.data.group_id = newGid;
+            this.data.group_name = gName;
+            this.data.group_icon = gIcon;
             this.data.group_role = 1;
             this.data.group_level = 1;
             this.data.group_exp = 0;
             this.data.group_contribution = 0;
-            this.data.group_resource = 10000;
+            this.data.group_resource = 5000;
             this.data.group_size = 1;
             this.save();
+
             respond({
                 playerGroup: {
-                    group_id: 11,
-                    player_id: this.getNumericId(),
+                    group_id: newGid,
+                    player_id: myUid,
                     role: 1,
                     contribution: 0
                 },
                 group: {
-                    id: 11,
-                    name: this.data.group_name,
+                    id: newGid,
+                    name: gName,
                     level: 1,
                     exp: 0,
-                    notice: "",
-                    president_id: this.getNumericId(),
+                    notice: newGuild.notice,
+                    president_id: myUid,
                     created_at: nowTs,
-                    icon: this.data.group_icon,
+                    icon: gIcon,
                     capacity: 30,
                     join_type: 1,
                     min_lv: 30,
                     size: 1,
-                    resource: 10000,
+                    resource: 5000,
                     last_opponent: "",
                     last_opponent_icon: 0,
                     last_point: 0,
@@ -177,49 +291,144 @@ const GuildHandler = {
         }
 
         if (cmd === SVRCMD.ApplyGroup) {
-            var gId = (params && params[0]) ? Number(params[0]) : 1;
-            this.data.group_id = gId;
-            this.data.group_name = (gId === 2) ? "Akatsuki" : "Làng Lá";
+            var targetGid = (params && params[0]) ? Number(params[0]) : 1;
+            var targetGuild = getGuild(targetGid) || getGuild(1);
+            if (!targetGuild) return respond({}, { code: 1, msg: "Không tìm thấy bang hội!" }), true;
+
+            var myUid = this.getNumericId();
+            // Thêm trực tiếp nếu bang chế độ tự do duyệt (join_type === 1)
+            if (!targetGuild.members) targetGuild.members = [];
+            targetGuild.members.push({
+                player_id: myUid,
+                team_name: this.data.team_name || "Nhẫn Giả",
+                team_lv: Number(this.data.team_lv || 1),
+                icon: Number(this.data.icon || 10020),
+                role: 4, // 普通会员 (Normal)
+                contribution: 0,
+                last_signin_time: nowTs
+            });
+
+            this.data.group_id = targetGuild.id;
+            this.data.group_name = targetGuild.name;
+            this.data.group_icon = targetGuild.icon;
             this.data.group_role = 4;
+            this.data.group_level = targetGuild.level;
             this.save();
+
             respond({ joined: true });
             return true;
         }
 
         if (cmd === SVRCMD.ExitGroup) {
-            this.data.group_id = 0;
-            this.data.group_name = "";
-            this.data.group_role = 0;
+            var kickTargetId = (params && params[0]) ? Number(params[0]) : this.getNumericId();
+            var myGid = Number(this.data.group_id || 0);
+            var myGuild = getGuild(myGid);
+
+            if (myGuild && myGuild.members) {
+                myGuild.members = myGuild.members.filter(function(m) { return Number(m.player_id) !== kickTargetId; });
+            }
+
+            // Nếu chính bản thân rời bang / bị kick
+            if (kickTargetId === this.getNumericId()) {
+                this.data.group_id = 0;
+                this.data.group_name = "";
+                this.data.group_role = 0;
+                this.save();
+                respond({ dissolved: true });
+            } else {
+                respond({ status: 1 });
+            }
+            return true;
+        }
+
+        if (cmd === SVRCMD.SetGroupRole) {
+            var tPid = Number((params && params[0]) || 0);
+            var newRole = Number((params && params[1]) || 4);
+            var myGid = Number(this.data.group_id || 0);
+            var myGuild = getGuild(myGid);
+            if (myGuild && myGuild.members) {
+                for (var mi = 0; mi < myGuild.members.length; mi++) {
+                    if (Number(myGuild.members[mi].player_id) === tPid) {
+                        myGuild.members[mi].role = newRole;
+                        break;
+                    }
+                }
+            }
+            if (tPid === this.getNumericId()) {
+                this.data.group_role = newRole;
+                this.save();
+            }
+            respond({ status: 1 });
+            return true;
+        }
+
+        if (cmd === "TransferBoss" || cmd === SVRCMD.TransferBoss) {
+            var newBossId = Number((params && params[0]) || 0);
+            var myGid = Number(this.data.group_id || 0);
+            var myGuild = getGuild(myGid);
+            if (myGuild && myGuild.members) {
+                myGuild.president_id = newBossId;
+                for (var mi = 0; mi < myGuild.members.length; mi++) {
+                    if (Number(myGuild.members[mi].player_id) === newBossId) {
+                        myGuild.members[mi].role = 1;
+                    } else if (Number(myGuild.members[mi].player_id) === this.getNumericId()) {
+                        myGuild.members[mi].role = 2; // Hạ xuống Trưởng lão
+                    }
+                }
+            }
+            this.data.group_role = 2;
             this.save();
-            respond({ dissolved: true });
+            respond({ status: 1 });
             return true;
         }
 
         if (cmd === SVRCMD.GroupMembers) {
-            var mems = [
-                {
-                    player_id: this.getNumericId(),
-                    team_name: this.data.team_name || "Nhẫn Giả",
-                    team_lv: Number(this.data.team_lv || 1),
-                    icon: Number(this.data.icon || 2010080),
-                    role: Number(this.data.group_role || 1),
-                    contribution: Number(this.data.group_contribution || 0),
-                    last_signin_time: nowTs
-                },
-                { player_id: 101, team_name: "Uchiha Sasuke", team_lv: 95, icon: 10020, role: 3, contribution: 2500, last_signin_time: nowTs - 1800 },
-                { player_id: 102, team_name: "Haruno Sakura", team_lv: 92, icon: 10030, role: 4, contribution: 1800, last_signin_time: nowTs - 3600 },
-                { player_id: 103, team_name: "Hatake Kakashi", team_lv: 98, icon: 10050, role: 2, contribution: 3200, last_signin_time: nowTs - 7200 },
-                { player_id: 104, team_name: "Nara Shikamaru", team_lv: 90, icon: 10120, role: 4, contribution: 1200, last_signin_time: nowTs - 14400 }
-            ];
-            respond({ members: mems });
+            var myGid = Number(this.data.group_id || 0);
+            var myGuild = getGuild(myGid);
+            if (myGuild && myGuild.members) {
+                // Cập nhật thông tin bản thân trong danh sách
+                var foundSelf = false;
+                for (var mi = 0; mi < myGuild.members.length; mi++) {
+                    if (Number(myGuild.members[mi].player_id) === this.getNumericId()) {
+                        myGuild.members[mi].team_name = this.data.team_name || "Nhẫn Giả";
+                        myGuild.members[mi].team_lv = Number(this.data.team_lv || 1);
+                        myGuild.members[mi].icon = Number(this.data.icon || 10020);
+                        myGuild.members[mi].role = Number(this.data.group_role || 1);
+                        myGuild.members[mi].last_signin_time = nowTs;
+                        foundSelf = true;
+                        break;
+                    }
+                }
+                if (!foundSelf) {
+                    myGuild.members.unshift({
+                        player_id: this.getNumericId(),
+                        team_name: this.data.team_name || "Nhẫn Giả",
+                        team_lv: Number(this.data.team_lv || 1),
+                        icon: Number(this.data.icon || 10020),
+                        role: Number(this.data.group_role || 1),
+                        contribution: Number(this.data.group_contribution || 0),
+                        last_signin_time: nowTs
+                    });
+                }
+                respond({ members: myGuild.members });
+            } else {
+                respond({ members: [] });
+            }
             return true;
         }
 
         if (cmd === SVRCMD.GroupSetting) {
+            var myGid = Number(this.data.group_id || 0);
+            var myGuild = getGuild(myGid);
             if (params && params.length >= 3) {
                 this.data.group_icon = Number(params[0]) || this.data.group_icon;
                 this.data.group_join_type = Number(params[1]) || this.data.group_join_type;
                 this.data.group_min_lv = Number(params[2]) || this.data.group_min_lv;
+                if (myGuild) {
+                    myGuild.icon = this.data.group_icon;
+                    myGuild.join_type = this.data.group_join_type;
+                    myGuild.min_lv = this.data.group_min_lv;
+                }
                 this.save();
             }
             respond({});

@@ -131,6 +131,11 @@ function handlePlayer(cmd, params, respond, queuePush) {
             "PLAYER_WHITE_GOLD_EXPIRE_TIME": Number(cards.PLAYER_WHITE_GOLD_EXPIRE_TIME || 0),
             "PLAYER_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_WEEK_CARD_EXPIRE_TIME || 0),
             "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME || 0),
+            "FIRST_RECHARGE": Number(this.data.had_recharge_gift !== undefined ? this.data.had_recharge_gift : 0),
+            "VIP_GIFTBAG_5": Number(this.data.had_vip5_gift || 0),
+            "VIP_GIFTBAG_9": Number(this.data.had_vip9_gift || 0),
+            "VIP_GIFTBAG_11": Number(this.data.had_vip11_gift || 0),
+            "VIP_GIFTBAG_13": Number(this.data.had_vip13_gift || 0),
             "DUG_COUNT": 0,
             "PLUNDER_COUNT": 0
         };
@@ -157,7 +162,12 @@ function handlePlayer(cmd, params, respond, queuePush) {
             "PLAYER_GOLD_CARD_EXPIRE_TIME": Number(cards.PLAYER_GOLD_CARD_EXPIRE_TIME || 0),
             "PLAYER_WHITE_GOLD_EXPIRE_TIME": Number(cards.PLAYER_WHITE_GOLD_EXPIRE_TIME || 0),
             "PLAYER_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_WEEK_CARD_EXPIRE_TIME || 0),
-            "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME || 0)
+            "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME || 0),
+            "FIRST_RECHARGE": Number(this.data.had_recharge_gift !== undefined ? this.data.had_recharge_gift : 0),
+            "VIP_GIFTBAG_5": Number(this.data.had_vip5_gift || 0),
+            "VIP_GIFTBAG_9": Number(this.data.had_vip9_gift || 0),
+            "VIP_GIFTBAG_11": Number(this.data.had_vip11_gift || 0),
+            "VIP_GIFTBAG_13": Number(this.data.had_vip13_gift || 0)
         };
         if (this.data.achievements) {
             for (const ak in this.data.achievements) {
