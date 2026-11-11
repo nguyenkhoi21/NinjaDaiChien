@@ -84,7 +84,7 @@ const ArenaAndTowerHandler = {
             if (this.data.tower_layers && this.data.tower_layers[curLayer]) {
                 this.data.tower_layers[curLayer].has_pass = 1;
             }
-            this.data.daily_counts["PLAYER_DIALY_TASK_5"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_5"] || 0) + 1;
+            this.data.daily_counts["PLAYER_DIALY_TASK_9"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_9"] || 0) + 1;
             respond({ status: 1 });
             return true;
         }
@@ -182,6 +182,7 @@ const ArenaAndTowerHandler = {
                 if (nt.layer > Number(nt.max_layer || 0)) nt.max_layer = nt.layer;
                 nt.status = 1;
             }
+            this.data.daily_counts["PLAYER_DIALY_TASK_20"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_20"] || 0) + 1;
             respond(this.data.noend_towers[diff]);
             return true;
         }
@@ -196,6 +197,7 @@ const ArenaAndTowerHandler = {
             if (cmd === SVRCMD.NoEndSkipLayer) {
                 nt.layer = Number(nt.layer || 0) + 1;
                 nt.status = 1;
+                this.data.daily_counts["PLAYER_DIALY_TASK_20"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_20"] || 0) + 1;
             } else {
                 nt.status = 0;
             }
@@ -294,7 +296,7 @@ const ArenaAndTowerHandler = {
                 }
                 this.data.expedition_wave = Math.min(maxWaves + 1, Number(this.data.expedition_wave || 1) + 1);
                 this.addTeamExp(20);
-                this.data.daily_counts["PLAYER_DIALY_TASK_10"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_10"] || 0) + 1;
+                this.data.daily_counts["PLAYER_DIALY_TASK_11"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_11"] || 0) + 1;
                 this.save();
             }
             respond({ is_win: isWin ? 1 : 0 });
@@ -306,6 +308,9 @@ const ArenaAndTowerHandler = {
             var waveIdx = Number((params && params[0]) || 1);
             if (!this.data.expedition_picked) this.data.expedition_picked = {};
             this.data.expedition_picked[waveIdx] = 1;
+            if (cmd === SVRCMD.SweepNinja) {
+                this.data.daily_counts["PLAYER_DIALY_TASK_11"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_11"] || 0) + 1;
+            }
 
             if (curDiff === 4) {
                 respond({ items: [] });
@@ -563,7 +568,12 @@ const ArenaAndTowerHandler = {
             var curRank = Number(this.data.arena_rank || 10);
             var newRank = Math.max(1, curRank - 1);
             this.data.arena_rank = newRank;
-            this.data.daily_counts["PLAYER_DIALY_TASK_9"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_9"] || 0) + 1;
+            if (cmd === SVRCMD.DarkArenaFight) {
+                this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
+            } else {
+                this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
+            }
+            this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
             this.save();
             respond({
                 skipReply: true,
@@ -698,6 +708,7 @@ const ArenaAndTowerHandler = {
             };
             if (!this.data.treasures) this.data.treasures = [];
             this.data.treasures.push(newTreasure);
+            this.data.daily_counts["PLAYER_DIALY_TASK_16"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_16"] || 0) + 1;
             this.save();
             respond({ treasure: newTreasure });
             return true;
@@ -770,6 +781,7 @@ const ArenaAndTowerHandler = {
                 this.changeItemAmount(lootItems[li].item_id, lootItems[li].amount, queuePush);
             }
             this.addGold(50000, queuePush);
+            this.data.total_plunder_count = Number(this.data.total_plunder_count || 0) + 1;
             this.save();
             respond({
                 tg_num: 5,

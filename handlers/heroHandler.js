@@ -388,6 +388,7 @@ const HeroHandler = {
                 } else if (skillIndex >= 6 && skillIndex <= 10) {
                     h["skill_" + (skillIndex - 5) + "_lv"] = newLv;
                 }
+                this.data.daily_counts["PLAYER_DIALY_TASK_7"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_7"] || 0) + 1;
                 queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
             }
             respond({ skillLv: newLv, leftCount: 9999, point: 9999, lastTime: Math.floor(Date.now() / 1000) });
@@ -719,6 +720,7 @@ const HeroHandler = {
                     lv: 1,
                     exp: 0
                 });
+                this.data.daily_counts["PLAYER_DIALY_TASK_10"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_10"] || 0) + 1;
                 if (this.data.heros[heroId]) {
                     queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
                 }
@@ -815,6 +817,7 @@ const HeroHandler = {
             };
 
             queuePush(SVRCMD.Beast, { beast: updatedBeast });
+            this.data.daily_counts["PLAYER_DIALY_TASK_10"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_10"] || 0) + 1;
             if (this.data.heros && this.data.heros[heroId]) {
                 queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
             }
@@ -832,6 +835,7 @@ const HeroHandler = {
             }
             this.deductStone(stoneCost, queuePush);
             this.data.daily_counts["BEAST_STONE_EXP"] = Number(this.data.daily_counts["BEAST_STONE_EXP"] || 0) + expGain;
+            this.data.daily_counts["PLAYER_DIALY_TASK_10"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_10"] || 0) + 1;
 
             var updatedBeast2 = { beast_id: beastId, lv: 1, exp: 0 };
             if (this.data.beasts[heroId]) {
@@ -918,6 +922,8 @@ const HeroHandler = {
             } else {
                 this.changeItemAmount(dropItemId, 1, queuePush);
             }
+            this.data.total_school_count = Number(this.data.total_school_count || 0) + 1;
+            this.data.daily_counts["PLAYER_DIALY_TASK_2"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_2"] || 0) + 1;
             this.save();
             respond({
                 playerSchool: this.data.player_school,

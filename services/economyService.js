@@ -20,6 +20,7 @@ const EconomyService = {
         cost = Math.max(0, Number(cost || 0));
         if (!this.canDeductGold(cost)) return false;
         this.data.gold = Number(this.data.gold || 0) - cost;
+        this.data.total_gold_spent = Number(this.data.total_gold_spent || 0) + cost;
         if (!this.data.event_process) this.data.event_process = {};
         this.data.event_process[6] = Number(this.data.event_process[6] || 0) + cost;
         if (queuePush) queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
@@ -43,6 +44,7 @@ const EconomyService = {
         cost = Math.max(0, Number(cost || 0));
         if (!this.canDeductStone(cost)) return false;
         this.data.stone = Number(this.data.stone || 0) - cost;
+        this.data.total_stone_spent = Number(this.data.total_stone_spent || 0) + cost;
         if (!this.data.event_process) this.data.event_process = {};
         this.data.event_process[5] = Number(this.data.event_process[5] || 0) + cost;
         if (queuePush) queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());

@@ -313,41 +313,11 @@ class PlayerSession {
             this.initPlayer(this.playerId, this.username);
         }
 
-        // Chat broadcast across all connected players
-        if (cmd === "LsvChatSend" || cmd === "Chat") {
-            const msgText = (params && params[0]) ? String(params[0]) : "";
-            const chatChannel = (params && params[1] !== undefined) ? Number(params[1]) : 0;
-            const cId = Date.now() % 10000000;
-            const chatObj = {
-                id: cId,
-                source_server: 1,
-                player_id: this.server.getNumericId(),
-                player_name: this.server.data.team_name || this.username,
-                player_icon: Number(this.server.data.icon || 2010080),
-                player_lv: Number(this.server.data.team_lv || 1),
-                player_vip: Number(this.server.data.vip_lv || 15),
-                create_time: Math.floor(Date.now() / 1000),
-                fight_record_id: 0,
-                msg: msgText,
-                send_to: chatChannel,
-                chat_type: chatChannel,
-                lsv: true
-            };
-
-            const broadcastPkg = JSON.stringify({ func_name: "ChatMessage", data: { chat: chatObj } });
-            for (const sock of connectedSockets) {
-                sendWsFrame(sock, broadcastPkg);
-            }
-
-            this.sendPacket(cmd, { chat: chatObj });
-            saveDb();
-            return;
-        }
-
         // ---- Multiplayer-aware commands (need access to other players) ----
         const d = this.server.data;
         if (cmd === "GetPlayerId") {
-            const found = findPlayerByIdOrUid(String((params && params[0]) || ""));
+            const queryName = String((params && params[0]) || "").trim();
+            const found = findPlayerByIdOrUid(queryName);
             if (!found) return this.sendPacket(cmd, {}, { code: 1, msg: "Không tìm thấy người chơi này!" });
             const targetUid = getOrAssignUid(found.key, found.data);
             return this.sendPacket(cmd, { playerId: targetUid });
@@ -402,6 +372,50 @@ class PlayerSession {
                 this.sendPacket(q.func_name, q.data);
             }
             this.sendPacket(cmd, respData, err);
+
+            // Real-time broadcast for Chat and LsvChatSend to other connected players
+            if (!err && respData && respData.chat && (cmd === "Chat" || (typeof SVRCMD !== "undefined" && cmd === SVRCMD.Chat))) {
+                const broadcastFrame = JSON.stringify({
+                    func_name: "Chat",
+                    data: { chat: respData.chat },
+                    error: {}
+                });
+                for (const sock of connectedSockets) {
+                    if (sock !== this.ws) {
+                        sendWsFrame(sock, broadcastFrame);
+                    }
+                }
+            }
+            if (!err && (cmd === "SendLatern" || (typeof SVRCMD !== "undefined" && cmd === SVRCMD.SendLatern))) {
+                const lanternText = String((params && params[0]) || "").trim();
+                if (lanternText) {
+                    const senderName = (this.server.data && this.server.data.team_name) || this.username || "Nhẫn Giả";
+                    const shoutFrame = JSON.stringify({
+                        func_name: "Chat",
+                        data: {
+                            chat: {
+                                id: Date.now() % 10000000,
+                                source_server: 1,
+                                player_id: this.server.getNumericId(),
+                                player_name: senderName,
+                                player_icon: Number((this.server.data && this.server.data.icon) || 10010),
+                                player_lv: Number((this.server.data && this.server.data.team_lv) || 1),
+                                player_vip: Number((this.server.data && this.server.data.vip_lv) || 0),
+                                create_time: Math.floor(Date.now() / 1000),
+                                fight_record_id: 0,
+                                msg: "[LOA] " + lanternText,
+                                send_to: 0,
+                                send_to_name: ""
+                            }
+                        },
+                        error: {}
+                    });
+                    for (const sock of connectedSockets) {
+                        sendWsFrame(sock, shoutFrame);
+                    }
+                }
+            }
+
             markDirty(this.playerId);
             saveDb();
         };

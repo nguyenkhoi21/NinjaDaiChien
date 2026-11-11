@@ -3,6 +3,54 @@
 // (Chat, LsvChatSend/History, LanternInfo, Battle Replay Fallbacks, GM* Debug Commands)
 // ============================================================================
 
+const globalChats = [
+    {
+        id: 1,
+        source_server: 1,
+        player_id: 100,
+        player_name: "Hokage Đệ Thất",
+        player_icon: 10010,
+        player_lv: 90,
+        player_vip: 15,
+        create_time: Math.floor(Date.now() / 1000) - 60,
+        fight_record_id: 0,
+        msg: "Chào mừng các Nhẫn Giả đến với máy chủ Ninja Đại Chiến!",
+        send_to: 0,
+        send_to_name: ""
+    }
+];
+
+const globalLsvChats = [
+    {
+        id: 1,
+        source_server: 1,
+        player_id: 100,
+        player_name: "Hokage Đệ Thất",
+        player_icon: 10010,
+        player_lv: 90,
+        player_vip: 15,
+        create_time: Math.floor(Date.now() / 1000) - 60,
+        fight_record_id: 0,
+        msg: "Kênh chat Liên Server đã sẵn sàng!",
+        send_to: 0,
+        lsv: true
+    }
+];
+
+const globalLanterns = [
+    {
+        id: 1,
+        msg: "Chào mừng các Nhẫn Giả bước vào thế giới Shinobi Saga!",
+        content: "Chào mừng các Nhẫn Giả bước vào thế giới Shinobi Saga!",
+        from: 0,
+        to: 2147483647,
+        interval: 60,
+        type: 1
+    }
+];
+
+let globalChatSeq = 100;
+
 const GmAndChatHandler = {
     handleGmAndChatCommand: function(cmd, params, respond, queuePush) {
         var noFight = { code: 1, msg: "Không có dữ liệu trận đấu để xem lại!" };
@@ -14,54 +62,150 @@ const GmAndChatHandler = {
 
         if (cmd === SVRCMD.LanternInfo) {
             respond({
-                lanterns: [
-                    {
-                        id: 1,
-                        msg: "Chào mừng các Nhẫn Giả bước vào thế giới Shinobi Saga!",
-                        content: "Chào mừng các Nhẫn Giả bước vào thế giới Shinobi Saga!",
-                        from: 0,
-                        to: 2147483647,
-                        interval: 60,
-                        type: 1
-                    }
-                ]
+                lanterns: globalLanterns.slice(0, 10)
             });
             return true;
         }
 
         if (cmd === "SendLatern" || cmd === SVRCMD.SendLatern) {
+            var lanternText = String((params && params[0]) || "").trim();
+            if (lanternText) {
+                var senderName = this.data.team_name || "Nhẫn Giả";
+                var fullText = "[" + senderName + "]: " + lanternText;
+                var lObj = {
+                    id: ++globalChatSeq,
+                    msg: fullText,
+                    content: fullText,
+                    from: 0,
+                    to: 2147483647,
+                    interval: 30,
+                    type: 1
+                };
+                globalLanterns.unshift(lObj);
+                if (globalLanterns.length > 20) globalLanterns.pop();
+
+                // Also add to World Chat so everyone sees the shout in chat log
+                var shoutChatObj = {
+                    id: ++globalChatSeq,
+                    source_server: 1,
+                    player_id: this.getNumericId(),
+                    player_name: senderName,
+                    player_icon: Number(this.data.icon || 10010),
+                    player_lv: Number(this.data.team_lv || 1),
+                    player_vip: Number(this.data.vip_lv || 0),
+                    create_time: Math.floor(Date.now() / 1000),
+                    fight_record_id: 0,
+                    msg: "[LOA] " + lanternText,
+                    send_to: 0,
+                    send_to_name: ""
+                };
+                globalChats.unshift(shoutChatObj);
+                if (globalChats.length > 100) globalChats.pop();
+            }
             respond({ status: 1 });
             return true;
         }
 
-        if (cmd === SVRCMD.LsvChatSend || cmd === SVRCMD.Chat) {
-            var msgText = (params && params[0]) ? String(params[0]) : "";
-            var chatChannel = (params && params[1] !== undefined) ? Number(params[1]) : 0;
-            var cId = (this.data.chat_seq = (this.data.chat_seq || 100) + 1);
+        if (cmd === SVRCMD.Chat || cmd === "Chat") {
+            // Client sends: [chatType, targetName, targetId, chatLog, fightRecordId]
+            // Fallback 2-param: [msgText, chatChannel]
+            var chatType = 0;
+            var targetName = "";
+            var targetId = 0;
+            var msgText = "";
+            var fightRecordId = 0;
+
+            if (params && params.length >= 4) {
+                chatType = Number(params[0] || 0);
+                targetName = String(params[1] || "");
+                targetId = Number(params[2] || 0);
+                msgText = String(params[3] || "");
+                fightRecordId = Number(params[4] || 0);
+            } else if (params && params.length >= 1) {
+                msgText = String(params[0] || "");
+                chatType = (params[1] !== undefined) ? Number(params[1]) : 0;
+            }
+
+            var sendTo = (chatType === -2) ? (targetId > 0 ? targetId : 1) : chatType;
+            var cId = ++globalChatSeq;
             var chatObj = {
                 id: cId,
                 source_server: 1,
                 player_id: this.getNumericId(),
                 player_name: this.data.team_name || "Nhẫn Giả",
-                player_icon: Number(this.data.icon || 2010080),
+                player_icon: Number(this.data.icon || 10010),
                 player_lv: Number(this.data.team_lv || 1),
-                player_vip: Number(this.data.vip_lv || 15),
+                player_vip: Number(this.data.vip_lv || 0),
                 create_time: Math.floor(Date.now() / 1000),
-                fight_record_id: 0,
+                fight_record_id: fightRecordId,
                 msg: msgText,
-                send_to: chatChannel,
-                chat_type: chatChannel,
-                lsv: true
+                send_to: sendTo,
+                send_to_name: targetName,
+                group_id: Number(this.data.group_id || 1)
             };
+
+            globalChats.unshift(chatObj);
+            if (globalChats.length > 100) globalChats.pop();
+
             if (!this.data.chats) this.data.chats = [];
             this.data.chats.unshift(chatObj);
             if (this.data.chats.length > 50) this.data.chats.pop();
+
+            if (chatType === 0) {
+                if (!this.data.daily_counts) this.data.daily_counts = {};
+                this.data.daily_counts["WORLD_CHAT_COUNT"] = Number(this.data.daily_counts["WORLD_CHAT_COUNT"] || 0) + 1;
+            }
+
             respond({ chat: chatObj });
             return true;
         }
 
-        if (cmd === SVRCMD.LsvChatHistory || cmd === SVRCMD.ChatMessage) {
-            respond({ chats: this.data.chats || [] });
+        if (cmd === SVRCMD.ChatMessage || cmd === "ChatMessage") {
+            var reqType = (params && params[0] !== undefined) ? Number(params[0]) : 0;
+            var myUid = this.getNumericId();
+            var myGroupId = Number(this.data.group_id || 1);
+            var filtered = globalChats.filter(function(c) {
+                if (reqType === 0) {
+                    return Number(c.send_to) === 0 && !c.lsv;
+                }
+                if (reqType === -1) {
+                    return Number(c.send_to) === -1 && (!c.group_id || Number(c.group_id) === myGroupId);
+                }
+                if (reqType === -2) {
+                    return Number(c.send_to) > 0 && (Number(c.player_id) === myUid || Number(c.send_to) === myUid);
+                }
+                return true;
+            });
+            // Return in chronological order (oldest first so ChatWorldView.pushMsg appends newest at bottom/top properly)
+            respond({ chats: filtered.slice(0, 50).reverse() });
+            return true;
+        }
+
+        if (cmd === SVRCMD.LsvChatSend || cmd === "LsvChatSend") {
+            var lsvMsg = (params && params[0]) ? String(params[0]) : "";
+            var lsvId = ++globalChatSeq;
+            var lsvChatObj = {
+                id: lsvId,
+                source_server: 1,
+                player_id: this.getNumericId(),
+                player_name: this.data.team_name || "Nhẫn Giả",
+                player_icon: Number(this.data.icon || 10010),
+                player_lv: Number(this.data.team_lv || 1),
+                player_vip: Number(this.data.vip_lv || 0),
+                create_time: Math.floor(Date.now() / 1000),
+                fight_record_id: 0,
+                msg: lsvMsg,
+                send_to: 0,
+                lsv: true
+            };
+            globalLsvChats.unshift(lsvChatObj);
+            if (globalLsvChats.length > 100) globalLsvChats.pop();
+            respond({ chat: lsvChatObj });
+            return true;
+        }
+
+        if (cmd === SVRCMD.LsvChatHistory || cmd === "LsvChatHistory") {
+            respond({ chats: globalLsvChats.slice(0, 50).reverse() });
             return true;
         }
 
@@ -71,6 +215,8 @@ const GmAndChatHandler = {
                 return respond({}, { code: 1, msg: "Không đủ Kim Cương!" }), true;
             }
             this.deductStone(chatCost, queuePush);
+            if (!this.data.daily_counts) this.data.daily_counts = {};
+            this.data.daily_counts["WORLD_CHAT_COUNT"] = 0;
             respond({ value: 10 });
             return true;
         }

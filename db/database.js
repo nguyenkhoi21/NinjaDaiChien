@@ -165,13 +165,17 @@ function getOrAssignUid(accountKey, dataObj) {
 }
 
 function findPlayerByIdOrUid(idOrKey) {
-    const s = String(idOrKey || "");
+    const s = String(idOrKey || "").trim();
+    if (!s) return null;
     if (playerDb[s]) return { key: s, data: playerDb[s] };
+    const sLower = s.toLowerCase();
     const n = Number(idOrKey);
     for (const k in playerDb) {
         const d = playerDb[k];
         if (!d) continue;
-        if ((n > 0 && Number(d.uid) === n) || d.team_name === s) {
+        if ((n > 0 && Number(d.uid) === n) ||
+            (d.team_name && String(d.team_name).toLowerCase() === sLower) ||
+            String(k).toLowerCase() === sLower) {
             return { key: k, data: d };
         }
     }

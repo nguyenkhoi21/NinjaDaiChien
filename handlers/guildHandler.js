@@ -65,8 +65,10 @@ const GuildHandler = {
             if (!this.data.my_hires) this.data.my_hires = [];
             if (hId > 0 && this.data.my_hires.indexOf(hId) === -1) {
                 this.data.my_hires.push(hId);
-                this.save();
             }
+            if (!this.data.daily_counts) this.data.daily_counts = {};
+            this.data.daily_counts["PLAYER_DIALY_TASK_15"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_15"] || 0) + 1;
+            this.save();
             respond({ success: true, hero_id: hId });
             return true;
         }

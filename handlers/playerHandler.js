@@ -98,10 +98,14 @@ function handlePlayer(cmd, params, respond, queuePush) {
     }
     if (cmd === SVRCMD.Get) {
         const key = (params && params[0]) || "";
+        if (key === "LAST_RECHARGE_TIME") {
+            respond({ key: key, value: Number(this.data.last_recharge_time || 0) });
+            return true;
+        }
         const v = (this.data.guide_vars && this.data.guide_vars[key] !== undefined)
             ? this.data.guide_vars[key]
             : (key === "releaseSkill" ? 1 : 0);
-        respond({ value: v });
+        respond({ key: key, value: v });
         return true;
     }
     if (cmd === SVRCMD.Set) {
@@ -115,26 +119,21 @@ function handlePlayer(cmd, params, respond, queuePush) {
 
     // 3. DailyInfo, ServerInfo, SpInfo, DailyGet, MidnightGet
     if (cmd === SVRCMD.DailyInfo) {
-        const nowSec = Math.floor(Date.now() / 1000);
+        const cards = this.data.card_expire_times || {};
         const dc = {
             "BRONZE_BOX_TODAY_BUT_COUNT": Number(this.data.bronze_count || 0),
             "BRONZE_BOX_LAST_BUT_TIME": Number(this.data.bronze_time || 0),
             "GOLD_BOX_COUNT": Number(this.data.gold_box_count || 0),
             "GOLD_BOX_LAST_BUY_TIME": Number(this.data.gold_box_time || 0),
-            "PLAYER_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "MONTH_CARD_FOREVER": 1,
-            "PLAYER_GOLD_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "PLAYER_WHITE_GOLD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "PLAYER_WEEK_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
+            "PLAYER_CARD_EXPIRE_TIME": Number(cards.PLAYER_CARD_EXPIRE_TIME || 0),
+            "MONTH_CARD_FOREVER": Number(cards.MONTH_CARD_FOREVER || 0),
+            "PLAYER_GOLD_CARD_EXPIRE_TIME": Number(cards.PLAYER_GOLD_CARD_EXPIRE_TIME || 0),
+            "PLAYER_WHITE_GOLD_EXPIRE_TIME": Number(cards.PLAYER_WHITE_GOLD_EXPIRE_TIME || 0),
+            "PLAYER_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_WEEK_CARD_EXPIRE_TIME || 0),
+            "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME || 0),
             "DUG_COUNT": 0,
             "PLUNDER_COUNT": 0
         };
-        if (typeof Config !== "undefined" && Config.daily_task) {
-            for (const dtId in Config.daily_task) {
-                dc["PLAYER_DIALY_TASK_" + dtId] = 99;
-            }
-        }
         if (this.data.daily_counts) {
             for (const dk in this.data.daily_counts) {
                 dc[dk] = this.data.daily_counts[dk];
@@ -144,7 +143,7 @@ function handlePlayer(cmd, params, respond, queuePush) {
         return true;
     }
     if (cmd === SVRCMD.ServerInfo) {
-        const nowSec = Math.floor(Date.now() / 1000);
+        const cards = this.data.card_expire_times || {};
         const pInfo = {
             "GOLD_BOX_BUY_COUNT": 0,
             "GOLD_BOX_COUNT": Number(this.data.gold_box_count || 0),
@@ -153,12 +152,12 @@ function handlePlayer(cmd, params, respond, queuePush) {
             "BRONZE_BOX_LAST_BUT_TIME": Number(this.data.bronze_time || 0),
             "FIRST_BUY_NONE_FREE_BRONZE_BOX": Number(this.data.first_bronze_paid || 0),
             "FIRST_BUY_NONE_FREE_GOLD_BOX": Number(this.data.first_gold_paid || 0),
-            "PLAYER_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "MONTH_CARD_FOREVER": 1,
-            "PLAYER_GOLD_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "PLAYER_WHITE_GOLD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "PLAYER_WEEK_CARD_EXPIRE_TIME": nowSec + 86400 * 30,
-            "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": nowSec + 86400 * 30
+            "PLAYER_CARD_EXPIRE_TIME": Number(cards.PLAYER_CARD_EXPIRE_TIME || 0),
+            "MONTH_CARD_FOREVER": Number(cards.MONTH_CARD_FOREVER || 0),
+            "PLAYER_GOLD_CARD_EXPIRE_TIME": Number(cards.PLAYER_GOLD_CARD_EXPIRE_TIME || 0),
+            "PLAYER_WHITE_GOLD_EXPIRE_TIME": Number(cards.PLAYER_WHITE_GOLD_EXPIRE_TIME || 0),
+            "PLAYER_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_WEEK_CARD_EXPIRE_TIME || 0),
+            "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME": Number(cards.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME || 0)
         };
         if (this.data.achievements) {
             for (const ak in this.data.achievements) {
@@ -170,11 +169,23 @@ function handlePlayer(cmd, params, respond, queuePush) {
                 pInfo[dk2] = this.data.daily_counts[dk2];
             }
         }
+        if (this.data.goods_buy_count) {
+            for (const gid in this.data.goods_buy_count) {
+                const cnt = Number(this.data.goods_buy_count[gid] || 0);
+                if (cnt > 0) {
+                    pInfo["PLAYER_GOODS_COUNT_ID_" + gid] = cnt;
+                }
+            }
+        }
         respond({ playerInfo: pInfo });
         return true;
     }
     if (cmd === SVRCMD.DailyGet || cmd === SVRCMD.MidnightGet) {
         const k = (params && params[0]) || "";
+        if (k === "DAILY_RECHARGE") {
+            respond({ key: k, value: Number(this.data.daily_recharge_usd || 0) });
+            return true;
+        }
         respond({ key: k, value: Number((this.data.daily_counts && this.data.daily_counts[k]) || 0) });
         return true;
     }

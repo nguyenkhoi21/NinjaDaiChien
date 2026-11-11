@@ -142,6 +142,70 @@ const EventAndSignInHandler = {
             var pList = [];
             var evGroups2 = this.onlineEvents || [];
             var myPid = this.getNumericId();
+            var selfRef = this;
+            var computeEventProcessVal = function(evObj) {
+                var eid = Number(evObj.id);
+                var eType = Number(evObj.types);
+                var condStr = String(evObj.conditions || "1");
+                var condParts = condStr.split(",");
+                switch (eType) {
+                    case 1: // TYPE_TOTAL_RECHARG ($ USD accumulated)
+                        if (Number(evObj.kind) === 1840) {
+                            return Number(selfRef.data.daily_recharge_usd || selfRef.data.total_recharge_usd || 0);
+                        }
+                        return Number(selfRef.data.total_recharge_usd || 0);
+                    case 2: // TYPE_DAY_RECHARG
+                    case 4: // TYPE_TOTAL_TIMES_RECHARG
+                        return Number(selfRef.data.recharge_days || 0);
+                    case 3: // TYPE_TIMES_RECHARG (Single Recharge $X)
+                    case 14: // TYPE_RECHARGE_N_TIMES
+                        if (condParts.length >= 2) {
+                            var reqUsd = condParts[1].trim();
+                            var reqRound = Math.round(parseFloat(reqUsd) || 0);
+                            var sMap = selfRef.data.single_recharge_counts || {};
+                            if (sMap[reqUsd] || sMap[reqRound]) {
+                                return Number(sMap[reqUsd] || sMap[reqRound] || 0);
+                            }
+                            if (Number(selfRef.data.total_recharge_usd || 0) >= reqRound && reqRound > 0) {
+                                return 1;
+                            }
+                            return 0;
+                        }
+                        return Number(selfRef.data.recharge_times || 0);
+                    case 5: // TYPE_STONE_COST (Diamonds spent)
+                        return Number(selfRef.data.total_stone_spent || (selfRef.data.event_process && selfRef.data.event_process[5]) || 0);
+                    case 6: // TYPE_GOLD_COST (Gold spent)
+                        return Number(selfRef.data.total_gold_spent || (selfRef.data.event_process && selfRef.data.event_process[6]) || 0);
+                    case 7: // TYPE_LOGIN_DAYS
+                        return Math.max(1, Array.isArray(selfRef.data.sign_days) ? selfRef.data.sign_days.length : 1);
+                    case 8: // TYPE_BOX_TEN
+                        return Number(selfRef.data.total_gold_box_ten || 0);
+                    case 9: // TYPE_BOX_HUN
+                        return Number(selfRef.data.total_mystery_box || 0);
+                    case 12: // TYPE_PK_TIMES (Arena fights)
+                        return Number(selfRef.data.total_arena_fights || 0);
+                    case 13: // TYPE_VIP_REWARD (VIP Pack)
+                        var reqVip = Number(condParts[1] !== undefined ? condParts[1] : condParts[0]) || 1;
+                        return Number(selfRef.data.vip_lv || 0) >= reqVip ? 1 : 0;
+                    case 15: // TYPE_ITEM_EXCHANGE
+                        return Number((selfRef.data.event_process && selfRef.data.event_process[eid]) || 0);
+                    case 16: // TYPE_BUY_SP
+                        return Number(selfRef.data.total_buy_sp || 0);
+                    case 17: // TYPE_BUY_GOLD
+                        return Number(selfRef.data.total_buy_gold || 0);
+                    case 18: // TYPE_DARK_ARENA_COUNT
+                        return Number(selfRef.data.total_dark_arena_fights || 0);
+                    case 19: // TYPE_LUCKY_COUNT
+                        return Number(selfRef.data.total_lucky_spins || 0);
+                    case 20: // TYPE_PLUNDER_COUNT
+                        return Number(selfRef.data.total_plunder_count || 0);
+                    case 21: // TYPE_SCHOOL_COUNT
+                        return Number(selfRef.data.total_school_count || 0);
+                    default:
+                        return 0;
+                }
+            };
+
             for (var gi2 = 0; gi2 < evGroups2.length; gi2++) {
                 var grp2 = evGroups2[gi2];
                 if (!grp2) continue;
@@ -150,13 +214,10 @@ const EventAndSignInHandler = {
                     var eid = Number(ev2.id);
                     var eType = Number(ev2.types);
                     var hasRec = (this.data.event_claims && this.data.event_claims[eid]) ? 1 : 0;
-                    var procVal = 0;
+                    var procVal = computeEventProcessVal(ev2);
                     if (eType === 15) {
-                        procVal = Number((this.data.event_process && this.data.event_process[eid]) || 0);
-                        hasRec = 0;
-                    } else if (eType !== 101) {
-                        var condParts = String(ev2.conditions || "1").split(",");
-                        procVal = Math.max(1, parseInt(condParts[0]) || 1);
+                        var maxEx = parseInt(String(ev2.conditions || "99999").split(";")[0]) || 99999;
+                        hasRec = procVal >= maxEx ? 1 : 0;
                     }
                     pList.push({
                         event_id: eid,
@@ -166,7 +227,7 @@ const EventAndSignInHandler = {
                     });
                 }
             }
-            respond({ process_list: pList, process: 999999 });
+            respond({ process_list: pList, process: 0 });
             return true;
         }
 
@@ -187,8 +248,14 @@ const EventAndSignInHandler = {
                 if (targetEv) break;
             }
             if (targetEv) {
-                if (Number(targetEv.types) === 15) {
+                var tType = Number(targetEv.types);
+                if (tType === 15) {
                     var condSplit = String(targetEv.conditions || "").split(";");
+                    var maxExLimit = parseInt(condSplit[0]) || 99999;
+                    var curExCnt = Number((this.data.event_process && this.data.event_process[evId]) || 0);
+                    if (curExCnt >= maxExLimit) {
+                        return respond({}, { code: 1, msg: "Đã đạt giới hạn đổi thưởng của mục này!" }), true;
+                    }
                     if (condSplit.length >= 3 && condSplit[2]) {
                         var needArr = condSplit[2].split("-");
                         // First verify all exchange requirements
@@ -219,8 +286,11 @@ const EventAndSignInHandler = {
                             else if (nType === 4) this.deductStone(nAmt, queuePush);
                         }
                     }
-                    this.data.event_process[evId] = Number(this.data.event_process[evId] || 0) + 1;
+                    this.data.event_process[evId] = curExCnt + 1;
                 } else {
+                    if (this.data.event_claims && this.data.event_claims[evId]) {
+                        return respond({}, { code: 1, msg: "Bạn đã nhận phần thưởng này rồi!" }), true;
+                    }
                     this.data.event_claims[evId] = 1;
                 }
                 var itemStr = String(targetEv.items || "");
@@ -326,6 +396,7 @@ const EventAndSignInHandler = {
                     outLogs.push({ seq: pick.seq, item: pId, player_name: this.data.team_name || "Nhẫn Giả" });
                 }
             }
+            this.data.total_lucky_spins = Number(this.data.total_lucky_spins || 0) + count;
             queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
             respond({ logs: outLogs });
             return true;
@@ -522,14 +593,24 @@ const EventAndSignInHandler = {
         // 9. Giftcode & Lệnh GM trong Ô Nhập Code (SVRCMD.UseGiftBagCode)
         if (cmd === SVRCMD.UseGiftBagCode) {
             var rawCode = String((params && params[0]) || "").trim();
-            var parts = rawCode.toUpperCase().split(/[\s=]+/);
-            var gmCmd = parts[0];
-            if (gmCmd.startsWith("TEST")) {
+            var parts = rawCode.toUpperCase().split(/[\s=_:-]+/).filter(Boolean);
+            var gmCmd = parts[0] || "";
+            var valIdx = 1;
+
+            if (gmCmd === "GM" || gmCmd === "TEST") {
+                gmCmd = parts[1] || "ALL";
+                valIdx = 2;
+            } else if (gmCmd.startsWith("TEST") && gmCmd.length > 4) {
                 gmCmd = gmCmd.substring(4);
+            } else if (gmCmd.startsWith("GM") && gmCmd.length > 2) {
+                gmCmd = gmCmd.substring(2);
             }
-            var val = (parts.length > 1 && !isNaN(parseInt(parts[1]))) ? parseInt(parts[1]) : 0;
+
+            var val = (parts.length > valIdx && !isNaN(parseInt(parts[valIdx]))) ? parseInt(parts[valIdx]) : 0;
+            var val2 = (parts.length > valIdx + 1 && !isNaN(parseInt(parts[valIdx + 1]))) ? parseInt(parts[valIdx + 1]) : 0;
             var rewardItems = [];
 
+            // 1. GMGold / GMVang: Cộng Vàng
             if (gmCmd === "GOLD" || gmCmd === "VANG" || gmCmd === "TIEN" || gmCmd === "COIN") {
                 var addGold = val > 0 ? val : 1000000000;
                 this.addGold(addGold, queuePush);
@@ -537,18 +618,31 @@ const EventAndSignInHandler = {
                 respond({ items: rewardItems });
                 return true;
             }
-            if (gmCmd === "DIAMOND" || gmCmd === "GEM" || gmCmd === "KC" || gmCmd === "KIMCUONG" || gmCmd === "STONE") {
+
+            // 2. GMDiamond / GMKC / GMStone: Cộng Kim Cương
+            if (gmCmd === "DIAMOND" || gmCmd === "DIA" || gmCmd === "KC" || gmCmd === "KIMCUONG" || gmCmd === "STONE") {
                 var addStone = val > 0 ? val : 1000000;
                 this.addStone(addStone, queuePush);
                 rewardItems.push({ type: 4, item_id: 0, amount: addStone });
                 respond({ items: rewardItems });
                 return true;
             }
-            if (gmCmd === "HERO" || gmCmd === "SOUL" || gmCmd === "TUONG" || gmCmd === "NINJA") {
+
+            // 3. GMSoul / GMHero / GMNinja: Cộng Soul (Hồn Ninja) vào túi đồ
+            if (gmCmd === "HERO" || gmCmd === "SOUL" || gmCmd === "SOULS" || gmCmd === "TUONG" || gmCmd === "NINJA") {
                 var soulAmt = val > 0 ? val : 2000;
+                var specificId = 0;
+                if (val >= 10000 && val <= 30000) {
+                    specificId = val;
+                    soulAmt = val2 > 0 ? val2 : 2000;
+                }
                 if (typeof Config !== "undefined" && Config.item) {
                     for (var sid in Config.item) {
-                        if (Number(Config.item[sid].item_type) === 2) {
+                        var sCfg = Config.item[sid];
+                        if (Number(sCfg.item_type) === 2) {
+                            if (specificId > 0 && Number(sid) !== specificId && Number(sCfg.merge_id) !== specificId) {
+                                continue;
+                            }
                             this.changeItemAmount(Number(sid), soulAmt, queuePush);
                             if (rewardItems.length < 18) {
                                 rewardItems.push({ type: 1, item_id: Number(sid), amount: soulAmt });
@@ -559,7 +653,72 @@ const EventAndSignInHandler = {
                 respond({ items: rewardItems });
                 return true;
             }
-            if (gmCmd === "ITEM" || gmCmd === "PACK" || gmCmd === "DO" || gmCmd === "RUONG" || gmCmd === "MANUAL") {
+
+            // 4. GMBiKip / GMSecret: Cộng Bí Kíp + EXP Bí Kíp (type 2 trong Config.equip: 30101..30613)
+            if (gmCmd === "BIKIP" || gmCmd === "SECRET" || gmCmd === "SECRETS" || gmCmd === "EXPSECRET" || gmCmd === "BIKIPEXP") {
+                var expTacticIds = [30104, 30105, 30106, 30107];
+                var giveExpCnt = val > 0 ? val : 50;
+                for (var eti = 0; eti < expTacticIds.length; eti++) {
+                    var expId = expTacticIds[eti];
+                    this.addSecretEquip(expId, giveExpCnt, queuePush);
+                    rewardItems.push({ type: 2, item_id: expId, amount: giveExpCnt });
+                }
+                if (typeof Config !== "undefined" && Config.equip) {
+                    var existingTactics = {};
+                    if (this.data.secrets) {
+                        for (var tsi = 0; tsi < this.data.secrets.length; tsi++) {
+                            var teqKey = Number(this.data.secrets[tsi].equip_id);
+                            existingTactics[teqKey] = (existingTactics[teqKey] || 0) + 1;
+                        }
+                    }
+                    for (var bkId in Config.equip) {
+                        var bkCfg = Config.equip[bkId];
+                        var bkNum = Number(bkId);
+                        if (Number(bkCfg.type) === 2 && expTacticIds.indexOf(bkNum) === -1) {
+                            var curBk = existingTactics[bkNum] || 0;
+                            var targetBk = 3;
+                            if (curBk < targetBk) {
+                                this.addSecretEquip(bkNum, targetBk - curBk, queuePush);
+                            }
+                            if (rewardItems.length < 18) {
+                                rewardItems.push({ type: 2, item_id: bkNum, amount: targetBk });
+                            }
+                        }
+                    }
+                }
+                respond({ items: rewardItems });
+                return true;
+            }
+
+            // 5. GMGem / GMNgoc / GMDa: Cộng Đá khảm / Ngọc (type 3 trong Config.equip: 40101..40610)
+            if (gmCmd === "GEM" || gmCmd === "GEMS" || gmCmd === "DA" || gmCmd === "NGOC" || gmCmd === "DAKHAM") {
+                var gemGiveCnt = (val > 0 && val <= 50) ? val : 6;
+                if (typeof Config !== "undefined" && Config.equip) {
+                    for (var gid in Config.equip) {
+                        var gCfg = Config.equip[gid];
+                        var gNum = Number(gid);
+                        if (Number(gCfg.type) === 3) {
+                            this.changeEquipAmount(gNum, gemGiveCnt, queuePush);
+                            if (rewardItems.length < 18 && (gNum % 10 === 0 || gNum % 10 === 5 || gNum % 10 === 1)) {
+                                rewardItems.push({ type: 2, item_id: gNum, amount: gemGiveCnt });
+                            }
+                        }
+                    }
+                }
+                this.syncGemsAndSecrets(queuePush);
+                respond({ items: rewardItems });
+                return true;
+            }
+
+            // 6. GMItem / GMPack / GMDo: Cộng toàn bộ Item, Trang bị, Nhẫn cụ vào túi đồ
+            if (gmCmd === "ITEM" || gmCmd === "ITEMS" || gmCmd === "PACK" || gmCmd === "DO" || gmCmd === "RUONG" || gmCmd === "BAG" || gmCmd === "MANUAL") {
+                if (val >= 10000 && Config && Config.item && Config.item[val]) {
+                    var singleAmt = val2 > 0 ? val2 : 1000;
+                    this.changeItemAmount(val, singleAmt, queuePush);
+                    rewardItems.push({ type: 1, item_id: val, amount: singleAmt });
+                    respond({ items: rewardItems });
+                    return true;
+                }
                 if (typeof Config !== "undefined" && Config.item) {
                     for (var iid in Config.item) {
                         var it = Config.item[iid];
@@ -567,39 +726,17 @@ const EventAndSignInHandler = {
                         if (itType !== 2) {
                             var giveAmt = (itType === 12) ? 500 : ((itType === 3) ? 999 : 5000);
                             this.changeItemAmount(Number(iid), giveAmt, queuePush);
-                            if (itType === 12 && rewardItems.length < 6) {
+                            if (rewardItems.length < 12) {
                                 rewardItems.push({ type: 1, item_id: Number(iid), amount: giveAmt });
                             }
                         }
                     }
                 }
                 if (typeof Config !== "undefined" && Config.equip) {
-                    var existingSecretCounts = {};
-                    if (this.data.secrets) {
-                        for (var si = 0; si < this.data.secrets.length; si++) {
-                            var eqKey = Number(this.data.secrets[si].equip_id);
-                            existingSecretCounts[eqKey] = (existingSecretCounts[eqKey] || 0) + 1;
-                        }
-                    }
                     for (var eid in Config.equip) {
                         var eq = Config.equip[eid];
                         var eqType = Number(eq.type || eq.types || 1);
-                        if (eqType === 3) {
-                            var curGemCnt = existingSecretCounts[Number(eid)] || 0;
-                            var targetGemCnt = 6;
-                            if (curGemCnt < targetGemCnt) {
-                                this.addSecretEquip(Number(eid), targetGemCnt - curGemCnt, queuePush);
-                            }
-                            if (rewardItems.length < 12 && Number(eid) % 10 === 0) {
-                                rewardItems.push({ type: 2, item_id: Number(eid), amount: 6 });
-                            }
-                        } else if (eqType === 2) {
-                            var curTacCnt = existingSecretCounts[Number(eid)] || 0;
-                            var targetTacCnt = 3;
-                            if (curTacCnt < targetTacCnt) {
-                                this.addSecretEquip(Number(eid), targetTacCnt - curTacCnt, queuePush);
-                            }
-                        } else {
+                        if (eqType === 1) {
                             this.changeEquipAmount(Number(eid), 99, queuePush);
                             if (rewardItems.length < 18) {
                                 rewardItems.push({ type: 2, item_id: Number(eid), amount: 99 });
@@ -615,22 +752,9 @@ const EventAndSignInHandler = {
                 respond({ items: rewardItems });
                 return true;
             }
-            if (gmCmd === "BIKIP" || gmCmd === "SECRET" || gmCmd === "EXPSECRET" || gmCmd === "BIKIPEXP" || gmCmd === "NGOC") {
-                var expTacticIds = [30104, 30105, 30106, 30107];
-                var giveCount = val > 0 ? val : 99;
-                for (var eti = 0; eti < expTacticIds.length; eti++) {
-                    var expId = expTacticIds[eti];
-                    this.addSecretEquip(expId, giveCount, queuePush);
-                    rewardItems.push({ type: 2, item_id: expId, amount: giveCount });
-                }
-                var baseGemIds = [40101, 40201, 40301, 40401, 40501, 40601];
-                for (var bgi = 0; bgi < baseGemIds.length; bgi++) {
-                    this.addSecretEquip(baseGemIds[bgi], 20, queuePush);
-                }
-                respond({ items: rewardItems });
-                return true;
-            }
-            if (gmCmd === "EXP" || gmCmd === "TEXTEXP" || gmCmd === "LV") {
+
+            // 7. GMExp / GMLv: Cộng EXP Đội
+            if (gmCmd === "EXP" || gmCmd === "TEXTEXP" || gmCmd === "LV" || gmCmd === "LEVEL") {
                 var expAdd = val > 0 ? val : 500000;
                 this.addTeamExp(expAdd);
                 queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
@@ -638,17 +762,24 @@ const EventAndSignInHandler = {
                 respond({ items: rewardItems });
                 return true;
             }
-            if (gmCmd === "VIT" || gmCmd === "TL" || gmCmd === "THELUC" || gmCmd === "ENERGY") {
+
+            // 8. GMSp / GMTheLuc / GMVit: Cộng Thể Lực
+            if (gmCmd === "VIT" || gmCmd === "SP" || gmCmd === "TL" || gmCmd === "THELUC" || gmCmd === "ENERGY") {
                 var addSp = val > 0 ? val : 5000;
                 this.addSp(addSp, queuePush);
                 rewardItems.push({ type: 5, item_id: 0, amount: addSp });
                 respond({ items: rewardItems });
                 return true;
             }
+
+            // 9. GMVip: Nâng cấp VIP
             if (gmCmd === "VIP" || gmCmd === "SVIP") {
                 var targetVip = val > 0 ? val : 15;
-                targetVip = Math.min(15, Math.max(0, targetVip));
+                targetVip = Math.min(20, Math.max(0, targetVip));
                 this.data.vip_lv = targetVip;
+                if (typeof Config !== "undefined" && Config.vipLevel && Config.vipLevel[targetVip]) {
+                    this.data.vip_exp = Number(Config.vipLevel[targetVip].upg_vip_exp || 0);
+                }
                 this.data.had_recharge_gift = 1;
                 this.data.had_vip5_gift = 1;
                 this.data.had_vip9_gift = 1;
@@ -659,6 +790,23 @@ const EventAndSignInHandler = {
                 respond({ items: rewardItems });
                 return true;
             }
+
+            // 10. GMCard: Kích hoạt toàn bộ Thẻ Tháng / Thẻ Tuần / Thẻ Trọn Đời
+            if (gmCmd === "CARD" || gmCmd === "THE" || gmCmd === "THETHANG") {
+                var nowSecCard = Math.floor(Date.now() / 1000);
+                if (!this.data.card_expire_times) this.data.card_expire_times = {};
+                this.data.card_expire_times.PLAYER_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
+                this.data.card_expire_times.MONTH_CARD_FOREVER = 1;
+                this.data.card_expire_times.PLAYER_GOLD_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
+                this.data.card_expire_times.PLAYER_WHITE_GOLD_EXPIRE_TIME = nowSecCard + 86400 * 30;
+                this.data.card_expire_times.PLAYER_WEEK_CARD_EXPIRE_TIME = nowSecCard + 86400 * 7;
+                this.data.card_expire_times.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME = nowSecCard + 86400 * 7;
+                this.addStone(50000, queuePush);
+                rewardItems.push({ type: 4, item_id: 0, amount: 50000 });
+                respond({ items: rewardItems });
+                return true;
+            }
+
             if (gmCmd === "RESET") {
                 this.initDefaultData();
                 this.ensureDataFields();
@@ -668,7 +816,7 @@ const EventAndSignInHandler = {
                 return true;
             }
 
-            // Default giftcode fallback: gift 100,000 Gems & 100,000,000 Gold
+            // Default giftcode fallback: gift 100,000 Diamonds & 100,000,000 Gold
             this.addStone(100000, queuePush);
             this.addGold(100000000, queuePush);
             rewardItems.push({ type: 4, item_id: 0, amount: 100000 });

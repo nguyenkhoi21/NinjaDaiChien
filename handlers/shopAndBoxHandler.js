@@ -137,6 +137,9 @@ const ShopAndBoxHandler = {
                     this.deductStone(totalStone, queuePush);
                     this.data.first_gold_paid = 1;
                 }
+                if (count === 10) {
+                    this.data.total_gold_box_ten = Number(this.data.total_gold_box_ten || 0) + 1;
+                }
                 // Bonus EXP item 10020
                 this.changeItemAmount(10020, count, queuePush);
                 this.data.daily_counts["PLAYER_DIALY_TASK_2"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_2"] || 0) + count;
@@ -166,6 +169,8 @@ const ShopAndBoxHandler = {
                 }
                 this.deductStone(totalStone3, queuePush);
                 this.changeItemAmount(10030, count, queuePush);
+                this.data.total_mystery_box = Number(this.data.total_mystery_box || 0) + count;
+                this.data.daily_counts["PLAYER_DIALY_TASK_2"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_2"] || 0) + count;
                 queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
 
                 var rawDrops3 = this.rollBoxDrops(grpId, count);
@@ -286,6 +291,7 @@ const ShopAndBoxHandler = {
                 // Buy Stamina (SP)
                 var spAdd = rewardVal > 1 ? rewardVal : 120;
                 this.addSp(spAdd, queuePush);
+                this.data.total_buy_sp = Number(this.data.total_buy_sp || 0) + 1;
             } else if (goods2Id === 2001) {
                 // Buy Gold (Midas)
                 var goldAmount = rewardVal > 1 ? rewardVal : (20000 + nextTier * 5000);
@@ -294,7 +300,8 @@ const ShopAndBoxHandler = {
                     queuePush(SVRCMD.Goods2Crit, {});
                 }
                 this.addGold(goldAmount, queuePush);
-                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
+                this.data.total_buy_gold = Number(this.data.total_buy_gold || 0) + 1;
+                this.data.daily_counts["PLAYER_DIALY_TASK_14"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_14"] || 0) + 1;
             } else if (goods2Id === 9101) {
                 // Buy Skill Points
                 this.data.skill_points = 20;
@@ -378,8 +385,93 @@ const ShopAndBoxHandler = {
             return true;
         }
 
-        if (cmd === "CreateOrder" || cmd === SVRCMD.CreateOrder) {
-            respond({ orderId: "NR" + Date.now() + Math.floor(Math.random() * 1000) });
+        if (cmd === "CreateOrder" || cmd === SVRCMD.CreateOrder || cmd === "GMBuyRMBGoods" || cmd === SVRCMD.GMBuyRMBGoods) {
+            var goodsId = Number((params && params[0]) || 3001);
+            if (goodsId === 3000) goodsId = 3007; // Fallback for Special_Goods
+            var nowSec = Math.floor(Date.now() / 1000);
+
+            if (!this.data.goods_buy_count) this.data.goods_buy_count = {};
+            if (!this.data.daily_counts) this.data.daily_counts = {};
+            if (!this.data.card_expire_times) this.data.card_expire_times = {};
+
+            var gCfg = (typeof Config !== "undefined" && Config.goods && Config.goods[goodsId]) ? Config.goods[goodsId] : null;
+            var dCfg = (typeof Config !== "undefined" && Config.goodsDrop && Config.goodsDrop[goodsId]) ? Config.goodsDrop[goodsId] : null;
+            var prevCount = Number(this.data.goods_buy_count[goodsId] || 0);
+            var priceCents = gCfg ? Number(gCfg.price || 0) : 0;
+            var priceUsd = priceCents > 0 ? Math.max(1, Math.round(priceCents / 100)) : 10;
+
+            var cardMap = {
+                3101: { key: "PLAYER_CARD_EXPIRE_TIME", days: 30, stone: 6000 },
+                3102: { key: "MONTH_CARD_FOREVER", days: 0, stone: 30000 },
+                3103: { key: "PLAYER_GOLD_CARD_EXPIRE_TIME", days: 30, stone: 15000 },
+                3104: { key: "PLAYER_WEEK_CARD_EXPIRE_TIME", days: 7, stone: 10000 },
+                3105: { key: "PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME", days: 7, stone: 30000 }
+            };
+
+            var diamondAdded = 0;
+            if (cardMap[goodsId]) {
+                var cm = cardMap[goodsId];
+                diamondAdded = dCfg ? Number(dCfg.first_buy_extra_stone || cm.stone) : cm.stone;
+                if (goodsId === 3102) {
+                    this.data.card_expire_times.MONTH_CARD_FOREVER = 1;
+                    this.data.daily_counts["MONTH_CARD_FOREVER"] = 1;
+                } else {
+                    var curExp = Math.max(nowSec, Number(this.data.card_expire_times[cm.key] || 0));
+                    var newExp = curExp + cm.days * 86400;
+                    this.data.card_expire_times[cm.key] = newExp;
+                    this.data.daily_counts[cm.key] = newExp;
+                }
+                this.addStone(diamondAdded, null);
+                this.addVipExp(diamondAdded, null);
+            } else if (goodsId < 3000 && dCfg && dCfg.target_id) {
+                // Direct-purchase Gift Pack (1001..1007)
+                if (typeof Config !== "undefined" && Config.box_drop && Config.box_drop[dCfg.target_id]) {
+                    var grp = Config.box_drop[dCfg.target_id];
+                    for (var bk in grp) {
+                        this.grantBoxDropReward(grp[bk], queuePush);
+                    }
+                }
+                var vipBonus = priceUsd * 100;
+                this.addVipExp(vipBonus, null);
+            } else {
+                // Diamond Pack (3001..3007)
+                var baseAmt = dCfg ? Number(dCfg.amount || 2500) : 2500;
+                var firstBonus = (prevCount === 0 && dCfg) ? Number(dCfg.first_buy_extra_stone || 0) : 0;
+                diamondAdded = baseAmt + firstBonus;
+                this.addStone(diamondAdded, null);
+                this.addVipExp(baseAmt, null);
+            }
+
+            this.data.goods_buy_count[goodsId] = prevCount + 1;
+            this.data.daily_counts["PLAYER_GOODS_COUNT_ID_" + goodsId] = prevCount + 1;
+
+            // Update recharge statistics for Online Events & First Recharge Gift
+            this.data.total_recharge_usd = Number(this.data.total_recharge_usd || 0) + priceUsd;
+            this.data.daily_recharge_usd = Number(this.data.daily_recharge_usd || 0) + priceUsd;
+            this.data.recharge_times = Number(this.data.recharge_times || 0) + 1;
+            this.data.last_recharge_time = nowSec;
+            if (!this.data.single_recharge_counts) this.data.single_recharge_counts = {};
+            this.data.single_recharge_counts[priceUsd] = Number(this.data.single_recharge_counts[priceUsd] || 0) + 1;
+            var exactUsd = (priceCents / 100).toFixed(2);
+            this.data.single_recharge_counts[exactUsd] = Number(this.data.single_recharge_counts[exactUsd] || 0) + 1;
+
+            var todayKey = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+            if (this.data.last_recharge_day !== todayKey) {
+                this.data.last_recharge_day = todayKey;
+                this.data.recharge_days = Number(this.data.recharge_days || 0) + 1;
+            }
+
+            if (Number(this.data.had_recharge_gift) !== 2) {
+                this.data.had_recharge_gift = 1;
+            }
+            if (Number(this.data.vip_lv || 0) >= 5 && Number(this.data.had_vip5_gift) === 0) this.data.had_vip5_gift = 1;
+            if (Number(this.data.vip_lv || 0) >= 9 && Number(this.data.had_vip9_gift) === 0) this.data.had_vip9_gift = 1;
+            if (Number(this.data.vip_lv || 0) >= 11 && Number(this.data.had_vip11_gift) === 0) this.data.had_vip11_gift = 1;
+            if (Number(this.data.vip_lv || 0) >= 13 && Number(this.data.had_vip13_gift) === 0) this.data.had_vip13_gift = 1;
+
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            queuePush(SVRCMD.RechargeSuccess, { status: 1, goodsId: goodsId, diamond: diamondAdded });
+            respond({ orderId: "NR" + Date.now() + Math.floor(Math.random() * 1000), status: 1 });
             return true;
         }
 

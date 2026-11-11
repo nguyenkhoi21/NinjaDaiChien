@@ -69,6 +69,24 @@ function updateChapterProgress(chaptersObj, cid, star) {
     return isFirst3Star;
 }
 
+function recordDailyChapterTask(self, cid, times) {
+    times = Math.max(1, Number(times || 1));
+    cid = Number(cid || 0);
+    if (!self.data.daily_counts) self.data.daily_counts = {};
+    if (cid >= 50010 && cid < 51000) {
+        self.data.daily_counts["PLAYER_DIALY_TASK_3"] = Number(self.data.daily_counts["PLAYER_DIALY_TASK_3"] || 0) + times;
+    } else if (cid >= 51000 && cid < 52000) {
+        self.data.daily_counts["PLAYER_DIALY_TASK_4"] = Number(self.data.daily_counts["PLAYER_DIALY_TASK_4"] || 0) + times;
+    } else if (cid >= 52000 && cid < 53000) {
+        self.data.daily_counts["PLAYER_DIALY_TASK_5"] = Number(self.data.daily_counts["PLAYER_DIALY_TASK_5"] || 0) + times;
+    } else if (cid >= 53000 && cid < 55000) {
+        self.data.daily_counts["PLAYER_DIALY_TASK_6"] = Number(self.data.daily_counts["PLAYER_DIALY_TASK_6"] || 0) + times;
+    } else if (cid >= 55000) {
+        self.data.daily_counts["PLAYER_DIALY_TASK_6"] = Number(self.data.daily_counts["PLAYER_DIALY_TASK_6"] || 0) + times;
+        self.data.daily_counts["PLAYER_DIALY_TASK_18"] = Number(self.data.daily_counts["PLAYER_DIALY_TASK_18"] || 0) + times;
+    }
+}
+
 function handleChapter(cmd, params, respond, queuePush) {
     if (cmd === SVRCMD.ChapterInfo) {
         if (this.data.chapters) {
@@ -121,6 +139,7 @@ function handleChapter(cmd, params, respond, queuePush) {
         }
 
         const isFirst3Star = updateChapterProgress(this.data.chapters, cid, star);
+        recordDailyChapterTask(this, cid, 1);
 
         if (!this.data.chapter_counts) this.data.chapter_counts = {};
         const cInfo = this.data.chapter_counts[cid] || { todayCount: 0, resetCount: 0 };
@@ -195,6 +214,7 @@ function handleChapter(cmd, params, respond, queuePush) {
         const cInfo = this.data.chapter_counts[cid] || { todayCount: 0, resetCount: 0 };
         cInfo.todayCount = Number(cInfo.todayCount || 0) + times;
         this.data.chapter_counts[cid] = cInfo;
+        recordDailyChapterTask(this, cid, times);
 
         this.deductSp(totalSpCost, null);
         this.addGold(goldPer * times, null);
@@ -266,6 +286,7 @@ function handleChapter(cmd, params, respond, queuePush) {
         const cInfo = this.data.chapter_counts[cid] || { todayCount: 0, resetCount: 0 };
         cInfo.todayCount = Number(cInfo.todayCount || 0) + times;
         this.data.chapter_counts[cid] = cInfo;
+        recordDailyChapterTask(this, cid, times);
 
         this.deductSp(spPer * times, null);
         this.addGold(goldPer * times, null);
@@ -290,6 +311,7 @@ function handleChapter(cmd, params, respond, queuePush) {
         this.addGold(goldGain, null);
         this.addTeamExp(expGain, null);
         updateChapterProgress(this.data.chapters, cid, 3);
+        recordDailyChapterTask(this, cid, 1);
         const dropItems = rollChapterDrops(this, cid, queuePush, true);
         queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
         respond({ isFirst3Star: false, gold: goldGain, exp: expGain, items: dropItems });
