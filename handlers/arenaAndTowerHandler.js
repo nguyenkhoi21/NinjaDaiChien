@@ -713,7 +713,8 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.MatchFighters || cmd === SVRCMD.MatcDarkhFighters) {
-            var myRank = Number(cmd === SVRCMD.MatcDarkhFighters ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
+            var isDark = (cmd === SVRCMD.MatcDarkhFighters);
+            var myRank = Number(isDark ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
             var botHero1 = this.createDefaultHeroRecord(10020);
             var botHero2 = this.createDefaultHeroRecord(10040);
             var botHero3 = this.createDefaultHeroRecord(10070);
@@ -721,12 +722,19 @@ const ArenaAndTowerHandler = {
             var r1 = Math.max(1, myRank - 15);
             var r2 = Math.max(1, myRank - 8);
             var r3 = Math.max(1, myRank - 3);
-            var list = [
-                { rank: r1, icon: 30610460, win_count: 50, player_lv: 85, player_name: "Kakashi Hatake", player_id: 101, fighter_id: 101, fight_value: 696039, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr },
-                { rank: r2, icon: 80110020, win_count: 30, player_lv: 80, player_name: "Naruto Uzumaki", player_id: 102, fighter_id: 102, fight_value: 580000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr },
-                { rank: r3, icon: 80110040, win_count: 10, player_lv: 75, player_name: "Sakura Haruno", player_id: 103, fighter_id: 103, fight_value: 450000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr }
-            ];
-            respond(list);
+            var f1 = { rank: r1, icon: 30610460, win_count: 50, player_lv: 85, player_name: "Kakashi Hatake", player_id: 101, fighter_id: 101, fight_value: 696039, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
+            var f2 = { rank: r2, icon: 80110020, win_count: 30, player_lv: 80, player_name: "Naruto Uzumaki", player_id: 102, fighter_id: 102, fight_value: 580000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
+            var f3 = { rank: r3, icon: 80110040, win_count: 10, player_lv: 75, player_name: "Sakura Haruno", player_id: 103, fighter_id: 103, fight_value: 450000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
+
+            if (isDark) {
+                respond([f1, f2, f3]);
+            } else {
+                var respObj = {};
+                respObj[String(r1)] = f1;
+                respObj[String(r2)] = f2;
+                respObj[String(r3)] = f3;
+                respond(respObj);
+            }
             return true;
         }
 
@@ -754,7 +762,10 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.SetArenaLineup || cmd === SVRCMD.SetDarkArenaLineup || cmd === SVRCMD.ClearArenaFightCD || cmd === SVRCMD.ClearDarkArenaFightCD || cmd === SVRCMD.BuyArenaFightNum || cmd === SVRCMD.BuyDarkArenaFightNum) {
-            if (cmd === SVRCMD.SetDarkArenaLineup) {
+            if (cmd === SVRCMD.SetArenaLineup) {
+                if (params && params[1]) this.data.arena_lineup = String(params[1]);
+                this.save();
+            } else if (cmd === SVRCMD.SetDarkArenaLineup) {
                 if (params && params[1]) this.data.dark_arena_lineup_1 = String(params[1]);
                 if (params && params[2]) this.data.dark_arena_lineup_2 = String(params[2]);
                 if (params && params[3]) this.data.dark_arena_lineup_3 = String(params[3]);
@@ -769,11 +780,12 @@ const ArenaAndTowerHandler = {
             var reqId = (params && params[4]) ? String(params[4]) : "";
             this.addStone(100, queuePush);
             this.addCurrency(10, 200, queuePush);
-            var curRank = Number(this.data.arena_rank || 10);
-            var newRank = Math.max(1, curRank - 1);
-            this.data.arena_rank = newRank;
             if (cmd === SVRCMD.DarkArenaFight) {
+                var curRank = Number(this.data.dark_arena_rank || 100);
+                var newRank = Math.max(1, curRank - 1);
+                this.data.dark_arena_rank = newRank;
                 this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
+                this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
                 var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
                 if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
                 var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6, 1001);
@@ -793,6 +805,9 @@ const ArenaAndTowerHandler = {
                 });
                 return true;
             } else {
+                var curRank = Number(this.data.arena_rank || 50);
+                var newRank = Math.max(1, curRank - 1);
+                this.data.arena_rank = newRank;
                 this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
                 var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
                 if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
@@ -835,12 +850,39 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.ArenaRank || cmd === SVRCMD.DarkArenaRank) {
-            var topRanks = [
-                { fighter_id: 18, player_id: 18, player_name: "Boo", player_lv: 102, icon: 4011040, rank: 1 },
-                { fighter_id: 38, player_id: 38, player_name: "Bá Khí", player_lv: 100, icon: 80110050, rank: 2 },
-                { fighter_id: this.getNumericId(), player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 2010080), rank: Number(this.data.dark_arena_rank || 10) }
-            ];
-            respond({ ranks: topRanks, logs: [] });
+            var myRank = Number(cmd === SVRCMD.DarkArenaRank ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
+            var botHero1 = this.createDefaultHeroRecord(10020);
+            var botHero2 = this.createDefaultHeroRecord(10040);
+            var botHero3 = this.createDefaultHeroRecord(10070);
+            var defStr = JSON.stringify([botHero1, botHero2, botHero3]);
+            if (cmd === SVRCMD.ArenaRank) {
+                var ranksObj = {
+                    "1": { fighter_id: 18, player_id: 18, player_name: "Boo", player_lv: 102, icon: 4011040, rank: 1, win_count: 100, fight_value: 1200000, def_heros: defStr },
+                    "2": { fighter_id: 38, player_id: 38, player_name: "Bá Khí", player_lv: 100, icon: 80110050, rank: 2, win_count: 85, fight_value: 1100000, def_heros: defStr },
+                    "3": { fighter_id: 55, player_id: 55, player_name: "Itachi", player_lv: 98, icon: 9010710, rank: 3, win_count: 70, fight_value: 950000, def_heros: defStr }
+                };
+                if (myRank > 3) {
+                    ranksObj[String(myRank)] = {
+                        fighter_id: this.getNumericId(),
+                        player_id: this.getNumericId(),
+                        player_name: this.data.team_name || "Nhẫn Giả",
+                        player_lv: Number(this.data.team_lv || 1),
+                        icon: Number(this.data.icon || 2010080),
+                        rank: myRank,
+                        win_count: Number(this.data.arena_win_count || 10),
+                        fight_value: 500000,
+                        def_heros: defStr
+                    };
+                }
+                respond({ ranks: ranksObj, logs: [] });
+            } else {
+                var topRanks = [
+                    { fighter_id: 18, player_id: 18, player_name: "Boo", player_lv: 102, icon: 4011040, rank: 1 },
+                    { fighter_id: 38, player_id: 38, player_name: "Bá Khí", player_lv: 100, icon: 80110050, rank: 2 },
+                    { fighter_id: this.getNumericId(), player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 2010080), rank: myRank }
+                ];
+                respond({ ranks: topRanks, logs: [] });
+            }
             return true;
         }
 
