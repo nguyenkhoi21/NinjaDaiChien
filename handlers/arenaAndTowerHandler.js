@@ -58,7 +58,61 @@ function writeHeroToBuffer(pw, uid, hid) {
     pw.appendByte(0);     // has_awake
 }
 
+function generateCompetentHeroRecord(hid, level, quality, star) {
+    hid = Number(hid);
+    level = Number(level || 80);
+    quality = Number(quality || 10);
+    star = Number(star || 4);
+    if (typeof Config !== "undefined" && Config.hero && Config.hero[hid] && Config.hero[hid].star) {
+        star = Math.max(star, Number(Config.hero[hid].star));
+    }
+
+    var qCfg = (typeof Config !== "undefined" && Config.heroQuality && Config.heroQuality[String(quality)] && Config.heroQuality[String(quality)][String(hid)]) || {};
+
+    return {
+        id: hid,
+        hero_id: hid,
+        lv: level,
+        level: level,
+        exp: 0,
+        quality: quality,
+        star: star,
+        status: 0,
+        has_awake: (quality >= 11) ? 1 : 0,
+        bagate_level: Math.min(8, Math.floor(level / 12)),
+        equip_1: qCfg.equip_1 ? 1 : 1,
+        equip_2: qCfg.equip_2 ? 1 : 1,
+        equip_3: qCfg.equip_3 ? 1 : 1,
+        equip_4: qCfg.equip_4 ? 1 : 1,
+        equip_5: qCfg.equip_5 ? 1 : 1,
+        equip_6: qCfg.equip_6 ? 1 : 1,
+        ninja_tool_1: 0,
+        ninja_tool_2: 0,
+        ninja_tool_3: 0,
+        ninja_tool_4: 0,
+        ninja_tool_5: 0,
+        ninja_tool_6: 0,
+        skill_1_lv: level,
+        skill_2_lv: level,
+        skill_3_lv: Math.max(1, level - 20),
+        skill_4_lv: Math.max(1, level - 40),
+        skill_5_lv: (quality >= 11) ? Math.max(1, level - 50) : 0,
+        skill_6_lv: 0,
+        skill_7_lv: 0,
+        secret_1_id: 0, secret_1_lv: 0,
+        secret_2_id: 0, secret_2_lv: 0,
+        secret_3_id: 0, secret_3_lv: 0,
+        secret_4_id: 0, secret_4_lv: 0,
+        secret_5_id: 0, secret_5_lv: 0,
+        secret_6_id: 0, secret_6_lv: 0
+    };
+}
+
 function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) {
+    seed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 1000000) + 1;
+    durationSec = Math.max(8, durationSec || 12);
+    var maxframetime = durationSec * 1000;
+
     var pw = new PackageWriter();
     pw.appendShort(0);
     pw.appendByte(0);
@@ -73,22 +127,174 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
     pw.appendByte(isWin ? 1 : 0);
 
     var bmStr = pw.getPackage().join(",");
-    var replaySeed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 1000000) + 1;
-    var dmgMap = {};
-    for (var i = 0; i < atkHeros.length; i++) {
-        dmgMap[String(1000 + i)] = isWin ? 50000 : 10000;
-    }
-    for (var j = 0; j < defHeros.length; j++) {
-        dmgMap[String(2000 + j)] = isWin ? 10000 : 50000;
-    }
     var replayObj = {
         bm: bmStr,
         result: !!isWin,
-        seed: replaySeed,
+        seed: seed,
         arena_protocol: 2,
-        maxframetime: (durationSec || 5) * 1000,
-        d: dmgMap
+        maxframetime: maxframetime,
+        d: {}
     };
+
+    var atkUnits = [];
+    for (var i = 0; i < atkHeros.length; i++) {
+        atkUnits.push({
+            id: 1000 + i,
+            hid: atkHeros[i],
+            skills: getHeroSkillIds(atkHeros[i]),
+            startX: 300 + i * 35,
+            targetX: 840 - i * 25,
+            x: 300 + i * 35,
+            y: 120 + (i % 3) * 35,
+            hp: 100000,
+            maxHp: 100000,
+            mp: 100,
+            dmgTotal: 0
+        });
+    }
+
+    var defUnits = [];
+    for (var j = 0; j < defHeros.length; j++) {
+        defUnits.push({
+            id: 2000 + j,
+            hid: defHeros[j],
+            skills: getHeroSkillIds(defHeros[j]),
+            startX: 1650 - j * 35,
+            targetX: 1100 + j * 25,
+            x: 1650 - j * 35,
+            y: 120 + (j % 3) * 35,
+            hp: 100000,
+            maxHp: 100000,
+            mp: 100,
+            dmgTotal: 0
+        });
+    }
+
+    var clashTime = 1600; // ms to reach melee center
+    for (var t = 16; t <= maxframetime; t += 16) {
+        var pMap = {};
+        var eList = [];
+
+        var moveProgress = Math.min(1.0, t / clashTime);
+        for (var i = 0; i < atkUnits.length; i++) {
+            var u = atkUnits[i];
+            if (u.hp > 0) {
+                u.x = Math.round(u.startX + (u.targetX - u.startX) * moveProgress);
+                var isMoving = (t < clashTime) ? 1 : 0;
+                pMap[String(u.id)] = [isMoving, 1, Math.round(u.hp), Math.round(u.mp), u.x, u.y];
+            } else {
+                pMap[String(u.id)] = [0, 1, 0, 0, u.x, u.y];
+            }
+        }
+        for (var j = 0; j < defUnits.length; j++) {
+            var u = defUnits[j];
+            if (u.hp > 0) {
+                u.x = Math.round(u.startX + (u.targetX - u.startX) * moveProgress);
+                var isMoving = (t < clashTime) ? 1 : 0;
+                pMap[String(u.id)] = [isMoving, -1, Math.round(u.hp), Math.round(u.mp), u.x, u.y];
+            } else {
+                pMap[String(u.id)] = [0, -1, 0, 0, u.x, u.y];
+            }
+        }
+
+        // Combat actions every 480ms after clash
+        if (t >= clashTime && (t % 480 === 0) && t < maxframetime - 1200) {
+            var livingAtk = atkUnits.filter(function(u) { return u.hp > 0; });
+            var livingDef = defUnits.filter(function(u) { return u.hp > 0; });
+
+            if (livingAtk.length > 0 && livingDef.length > 0) {
+                var aUnit = livingAtk[Math.floor(Math.random() * livingAtk.length)];
+                var dUnit = livingDef[0];
+
+                var aSkillId = (aUnit.skills[1] && aUnit.skills[1].id) || (aUnit.skills[0] && aUnit.skills[0].id) || 20021;
+                var aDmg = Math.floor(Math.random() * 3000) + 4000;
+                dUnit.hp = Math.max(0, dUnit.hp - aDmg);
+                aUnit.dmgTotal += aDmg;
+                aUnit.mp = Math.min(1000, aUnit.mp + 150);
+
+                eList.push([
+                    "__b4", // onCast
+                    aUnit.id,
+                    0,
+                    aSkillId,
+                    dUnit.id,
+                    dUnit.x,
+                    dUnit.y,
+                    0
+                ]);
+
+                eList.push([
+                    "__b1", // onHurt
+                    dUnit.id,
+                    0,
+                    dUnit.id,
+                    dUnit.x,
+                    dUnit.y,
+                    aSkillId,
+                    aDmg, 0, 0, 0,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0
+                ]);
+
+                if (dUnit.hp > 0 && (!isWin || Math.random() < 0.6)) {
+                    var dSkillId = (dUnit.skills[1] && dUnit.skills[1].id) || (dUnit.skills[0] && dUnit.skills[0].id) || 20041;
+                    var dDmg = Math.floor(Math.random() * 2000) + 2000;
+                    var targetAtk = livingAtk[0];
+                    if (!isWin) {
+                        targetAtk.hp = Math.max(0, targetAtk.hp - dDmg * 2);
+                    } else {
+                        targetAtk.hp = Math.max(1000, targetAtk.hp - dDmg);
+                    }
+                    dUnit.dmgTotal += dDmg;
+                    dUnit.mp = Math.min(1000, dUnit.mp + 100);
+
+                    eList.push([
+                        "__b4",
+                        dUnit.id,
+                        0,
+                        dSkillId,
+                        targetAtk.id,
+                        targetAtk.x,
+                        targetAtk.y,
+                        0
+                    ]);
+
+                    eList.push([
+                        "__b1",
+                        targetAtk.id,
+                        0,
+                        targetAtk.id,
+                        targetAtk.x,
+                        targetAtk.y,
+                        dSkillId,
+                        dDmg, 0, 0, 0,
+                        0, 0, 0, 0,
+                        0, 0, 0, 0
+                    ]);
+                }
+            }
+        }
+
+        if (t >= maxframetime - 1500) {
+            if (isWin) {
+                defUnits.forEach(function(u) { u.hp = 0; });
+            } else {
+                atkUnits.forEach(function(u) { u.hp = 0; });
+            }
+        }
+
+        var frameObj = { p: pMap };
+        if (eList.length > 0) frameObj.e = eList;
+        replayObj[String(t)] = frameObj;
+    }
+
+    for (var i = 0; i < atkUnits.length; i++) {
+        replayObj.d[String(atkUnits[i].id)] = Math.max(10000, atkUnits[i].dmgTotal);
+    }
+    for (var j = 0; j < defUnits.length; j++) {
+        replayObj.d[String(defUnits[j].id)] = Math.max(5000, defUnits[j].dmgTotal);
+    }
+
     return JSON.stringify(replayObj);
 }
 
@@ -723,12 +929,6 @@ const ArenaAndTowerHandler = {
         if (cmd === SVRCMD.MatchFighters || cmd === SVRCMD.MatcDarkhFighters) {
             var isDark = (cmd === SVRCMD.MatcDarkhFighters);
             var myRank = Number(isDark ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
-            var botHero1 = this.createDefaultHeroRecord(10020);
-            var botHero2 = this.createDefaultHeroRecord(10040);
-            var botHero3 = this.createDefaultHeroRecord(10070);
-            var botHero4 = this.createDefaultHeroRecord(10010);
-            var botHero5 = this.createDefaultHeroRecord(10030);
-            var defStr = JSON.stringify([botHero1, botHero2, botHero3, botHero4, botHero5]);
 
             var r1, r2, r3;
             if (myRank === 1) {
@@ -750,9 +950,35 @@ const ArenaAndTowerHandler = {
                 r3 = Math.max(1, myRank - 3);
             }
 
-            var f1 = { rank: r1, icon: 30610460, win_count: 50, player_lv: 85, player_name: "Kakashi Hatake", player_id: 101, fighter_id: 101, fight_value: 696039, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
-            var f2 = { rank: r2, icon: 80110020, win_count: 30, player_lv: 80, player_name: "Naruto Uzumaki", player_id: 102, fighter_id: 102, fight_value: 580000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
-            var f3 = { rank: r3, icon: 80110040, win_count: 10, player_lv: 75, player_name: "Sakura Haruno", player_id: 103, fighter_id: 103, fight_value: 450000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
+            var f1Heros = [
+                generateCompetentHeroRecord(10050, 85, 12, 5),
+                generateCompetentHeroRecord(10010, 85, 12, 5),
+                generateCompetentHeroRecord(10020, 85, 12, 5),
+                generateCompetentHeroRecord(10030, 85, 12, 5),
+                generateCompetentHeroRecord(10070, 85, 12, 5)
+            ];
+            var f2Heros = [
+                generateCompetentHeroRecord(10020, 82, 11, 4),
+                generateCompetentHeroRecord(10040, 82, 11, 4),
+                generateCompetentHeroRecord(10060, 82, 11, 4),
+                generateCompetentHeroRecord(10080, 82, 11, 4),
+                generateCompetentHeroRecord(10110, 82, 11, 4)
+            ];
+            var f3Heros = [
+                generateCompetentHeroRecord(10030, 80, 10, 4),
+                generateCompetentHeroRecord(10040, 80, 10, 4),
+                generateCompetentHeroRecord(10070, 80, 10, 4),
+                generateCompetentHeroRecord(10120, 80, 10, 4),
+                generateCompetentHeroRecord(10140, 80, 10, 4)
+            ];
+
+            var defStr1 = JSON.stringify(f1Heros);
+            var defStr2 = JSON.stringify(f2Heros);
+            var defStr3 = JSON.stringify(f3Heros);
+
+            var f1 = { rank: r1, icon: 30610460, win_count: 50, player_lv: 85, player_name: "Kakashi Hatake", player_id: 101, fighter_id: 101, fight_value: 696039, server_id: 1, def_heros: defStr1, def_heros_1: defStr1, def_heros_2: defStr1, def_heros_3: defStr1 };
+            var f2 = { rank: r2, icon: 80110020, win_count: 30, player_lv: 82, player_name: "Naruto Uzumaki", player_id: 102, fighter_id: 102, fight_value: 580000, server_id: 1, def_heros: defStr2, def_heros_1: defStr2, def_heros_2: defStr2, def_heros_3: defStr2 };
+            var f3 = { rank: r3, icon: 80110040, win_count: 10, player_lv: 80, player_name: "Sakura Haruno", player_id: 103, fighter_id: 103, fight_value: 450000, server_id: 1, def_heros: defStr3, def_heros_1: defStr3, def_heros_2: defStr3, def_heros_3: defStr3 };
 
             if (isDark) {
                 respond([f1, f2, f3]);
@@ -768,9 +994,72 @@ const ArenaAndTowerHandler = {
 
         if (cmd === SVRCMD.PlayerArenaInfo || cmd === SVRCMD.PlayerDarkArenaInfo) {
             var fId = Number((params && params[0]) || 101);
-            var defArr1 = [this.createDefaultHeroRecord(10020), this.createDefaultHeroRecord(10040), this.createDefaultHeroRecord(10070), this.createDefaultHeroRecord(10010), this.createDefaultHeroRecord(10030)];
-            var defArr2 = [this.createDefaultHeroRecord(10110), this.createDefaultHeroRecord(10120), this.createDefaultHeroRecord(10140), this.createDefaultHeroRecord(10150), this.createDefaultHeroRecord(10160)];
-            var defArr3 = [this.createDefaultHeroRecord(10280), this.createDefaultHeroRecord(10290), this.createDefaultHeroRecord(10310), this.createDefaultHeroRecord(10320), this.createDefaultHeroRecord(10330)];
+            var defArr1, defArr2, defArr3;
+            var pLv = 80;
+            var pName = "Thủ Vệ " + fId;
+            var pIcon = 30610460;
+            var fVal = 500000;
+
+            if (fId === 101) {
+                pLv = 85;
+                pName = "Kakashi Hatake";
+                pIcon = 30610460;
+                fVal = 696039;
+                defArr1 = [
+                    generateCompetentHeroRecord(10050, 85, 12, 5),
+                    generateCompetentHeroRecord(10010, 85, 12, 5),
+                    generateCompetentHeroRecord(10020, 85, 12, 5),
+                    generateCompetentHeroRecord(10030, 85, 12, 5),
+                    generateCompetentHeroRecord(10070, 85, 12, 5)
+                ];
+            } else if (fId === 102) {
+                pLv = 82;
+                pName = "Naruto Uzumaki";
+                pIcon = 80110020;
+                fVal = 580000;
+                defArr1 = [
+                    generateCompetentHeroRecord(10020, 82, 11, 4),
+                    generateCompetentHeroRecord(10040, 82, 11, 4),
+                    generateCompetentHeroRecord(10060, 82, 11, 4),
+                    generateCompetentHeroRecord(10080, 82, 11, 4),
+                    generateCompetentHeroRecord(10110, 82, 11, 4)
+                ];
+            } else if (fId === 103) {
+                pLv = 80;
+                pName = "Sakura Haruno";
+                pIcon = 80110040;
+                fVal = 450000;
+                defArr1 = [
+                    generateCompetentHeroRecord(10030, 80, 10, 4),
+                    generateCompetentHeroRecord(10040, 80, 10, 4),
+                    generateCompetentHeroRecord(10070, 80, 10, 4),
+                    generateCompetentHeroRecord(10120, 80, 10, 4),
+                    generateCompetentHeroRecord(10140, 80, 10, 4)
+                ];
+            } else {
+                defArr1 = [
+                    generateCompetentHeroRecord(10020, 80, 10, 4),
+                    generateCompetentHeroRecord(10040, 80, 10, 4),
+                    generateCompetentHeroRecord(10070, 80, 10, 4),
+                    generateCompetentHeroRecord(10010, 80, 10, 4),
+                    generateCompetentHeroRecord(10030, 80, 10, 4)
+                ];
+            }
+            defArr2 = [
+                generateCompetentHeroRecord(10110, pLv, 10, 4),
+                generateCompetentHeroRecord(10120, pLv, 10, 4),
+                generateCompetentHeroRecord(10140, pLv, 10, 4),
+                generateCompetentHeroRecord(10150, pLv, 10, 4),
+                generateCompetentHeroRecord(10160, pLv, 10, 4)
+            ];
+            defArr3 = [
+                generateCompetentHeroRecord(10280, pLv, 10, 4),
+                generateCompetentHeroRecord(10290, pLv, 10, 4),
+                generateCompetentHeroRecord(10310, pLv, 10, 4),
+                generateCompetentHeroRecord(10320, pLv, 10, 4),
+                generateCompetentHeroRecord(10330, pLv, 10, 4)
+            ];
+
             respond({
                 player_id: fId,
                 fighter_id: fId,
@@ -778,10 +1067,10 @@ const ArenaAndTowerHandler = {
                 team_num: 3,
                 win_count: 25,
                 rank: 15,
-                player_name: "Thủ Vệ " + fId,
-                player_lv: 80,
-                icon: 30610460,
-                fight_value: 500000,
+                player_name: pName,
+                player_lv: pLv,
+                icon: pIcon,
+                fight_value: fVal,
                 def_heros: JSON.stringify(defArr1),
                 def_heros_1: JSON.stringify(defArr1),
                 def_heros_2: JSON.stringify(defArr2),
@@ -809,17 +1098,38 @@ const ArenaAndTowerHandler = {
             var reqId = (params && params[4]) ? String(params[4]) : "";
             this.addStone(100, queuePush);
             this.addCurrency(10, 200, queuePush);
+
+            // Xác định danh sách tướng phòng thủ của đối thủ mục tiêu
+            var defHeros1 = [10050, 10010, 10020, 10030, 10070];
+            var defHeros2 = [10020, 10040, 10060, 10080, 10110];
+            var defHeros3 = [10030, 10040, 10070, 10120, 10140];
+            if (targetFighterId === 102) {
+                defHeros1 = [10020, 10040, 10060, 10080, 10110];
+            } else if (targetFighterId === 103) {
+                defHeros1 = [10030, 10040, 10070, 10120, 10140];
+            }
+
+            // Lấy danh sách tướng tấn công do người chơi chọn (params[2] e.g. "10020,10010,10030...")
+            var myHeroIds = [];
+            if (params && params[2] && typeof params[2] === "string") {
+                myHeroIds = params[2].split(",").map(Number).filter(function(n) { return n > 0; });
+            }
+            if (myHeroIds.length === 0) {
+                myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+            }
+            if (myHeroIds.length === 0) {
+                myHeroIds = [10010, 10020, 10030, 10040, 10050];
+            }
+
             if (cmd === SVRCMD.DarkArenaFight) {
                 var curRank = Number(this.data.dark_arena_rank || 100);
                 var newRank = Math.max(1, curRank - 1);
                 this.data.dark_arena_rank = newRank;
                 this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
                 this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
-                var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-                if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
-                var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6, 1001);
-                var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10010, 10030, 10080], true, 6, 1002);
-                var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15), [10110, 10120, 10140], true, 6, 1003);
+                var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), defHeros1, true, 12, 1001);
+                var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5), defHeros2, true, 12, 1002);
+                var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15).length > 0 ? myHeroIds.slice(10, 15) : myHeroIds.slice(0, 5), defHeros3, true, 12, 1003);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
@@ -838,10 +1148,8 @@ const ArenaAndTowerHandler = {
                 var newRank = Math.max(1, curRank - 1);
                 this.data.arena_rank = newRank;
                 this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
-                var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-                if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
                 var fightSeed = Math.floor(Math.random() * 900000) + 100000;
-                var fData = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6, fightSeed);
+                var fData = generateBattleReplayJson(myHeroIds.slice(0, 5), defHeros1, true, 12, fightSeed);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
@@ -880,15 +1188,47 @@ const ArenaAndTowerHandler = {
 
         if (cmd === SVRCMD.ArenaRank || cmd === SVRCMD.DarkArenaRank) {
             var myRank = Number(cmd === SVRCMD.DarkArenaRank ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
-            var botHero1 = this.createDefaultHeroRecord(10020);
-            var botHero2 = this.createDefaultHeroRecord(10040);
-            var botHero3 = this.createDefaultHeroRecord(10070);
-            var defStr = JSON.stringify([botHero1, botHero2, botHero3]);
+            var topDef1 = JSON.stringify([
+                generateCompetentHeroRecord(10050, 102, 14, 5),
+                generateCompetentHeroRecord(10010, 102, 14, 5),
+                generateCompetentHeroRecord(10020, 102, 14, 5),
+                generateCompetentHeroRecord(10030, 102, 14, 5),
+                generateCompetentHeroRecord(10070, 102, 14, 5)
+            ]);
+            var topDef2 = JSON.stringify([
+                generateCompetentHeroRecord(10020, 100, 13, 5),
+                generateCompetentHeroRecord(10040, 100, 13, 5),
+                generateCompetentHeroRecord(10060, 100, 13, 5),
+                generateCompetentHeroRecord(10080, 100, 13, 5),
+                generateCompetentHeroRecord(10110, 100, 13, 5)
+            ]);
+            var topDef3 = JSON.stringify([
+                generateCompetentHeroRecord(10030, 98, 12, 5),
+                generateCompetentHeroRecord(10040, 98, 12, 5),
+                generateCompetentHeroRecord(10070, 98, 12, 5),
+                generateCompetentHeroRecord(10120, 98, 12, 5),
+                generateCompetentHeroRecord(10140, 98, 12, 5)
+            ]);
+
+            var myDefList = [];
+            var myHeroKeys = Object.keys(this.data.heros || {});
+            for (var m = 0; m < Math.min(5, myHeroKeys.length); m++) {
+                myDefList.push(this.data.heros[myHeroKeys[m]]);
+            }
+            if (myDefList.length === 0) {
+                myDefList = [
+                    generateCompetentHeroRecord(10010, Number(this.data.team_lv || 80), 10, 4),
+                    generateCompetentHeroRecord(10020, Number(this.data.team_lv || 80), 10, 4),
+                    generateCompetentHeroRecord(10030, Number(this.data.team_lv || 80), 10, 4)
+                ];
+            }
+            var myDefStr = JSON.stringify(myDefList);
+
             if (cmd === SVRCMD.ArenaRank) {
                 var ranksObj = {
-                    "1": { fighter_id: 18, player_id: 18, player_name: "Boo", player_lv: 102, icon: 4011040, rank: 1, win_count: 100, fight_value: 1200000, def_heros: defStr },
-                    "2": { fighter_id: 38, player_id: 38, player_name: "Bá Khí", player_lv: 100, icon: 80110050, rank: 2, win_count: 85, fight_value: 1100000, def_heros: defStr },
-                    "3": { fighter_id: 55, player_id: 55, player_name: "Itachi", player_lv: 98, icon: 9010710, rank: 3, win_count: 70, fight_value: 950000, def_heros: defStr }
+                    "1": { fighter_id: 18, player_id: 18, player_name: "Boo", player_lv: 102, icon: 4011040, rank: 1, win_count: 100, fight_value: 1200000, def_heros: topDef1 },
+                    "2": { fighter_id: 38, player_id: 38, player_name: "Bá Khí", player_lv: 100, icon: 80110050, rank: 2, win_count: 85, fight_value: 1100000, def_heros: topDef2 },
+                    "3": { fighter_id: 55, player_id: 55, player_name: "Itachi", player_lv: 98, icon: 9010710, rank: 3, win_count: 70, fight_value: 950000, def_heros: topDef3 }
                 };
                 if (myRank > 3) {
                     ranksObj[String(myRank)] = {
@@ -900,7 +1240,7 @@ const ArenaAndTowerHandler = {
                         rank: myRank,
                         win_count: Number(this.data.arena_win_count || 10),
                         fight_value: 500000,
-                        def_heros: defStr
+                        def_heros: myDefStr
                     };
                 }
                 respond({ ranks: ranksObj, logs: [] });
