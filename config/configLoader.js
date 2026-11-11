@@ -63,7 +63,8 @@ const Config = {
     player_head: {},
     hero_quality_up: {},
     bamen: {},
-    ninja_tool: {}
+    ninja_tool: {},
+    tower: {}
 };
 
 function loadConfigData() {
@@ -345,6 +346,12 @@ function loadConfigData() {
         if (Array.isArray(data.ninja_tool)) {
             for (const sd of data.ninja_tool) {
                 Config.ninja_tool[sd.id] = Object.assign({}, sd);
+            }
+        }
+
+        if (Array.isArray(data.tower)) {
+            for (const sd of data.tower) {
+                Config.tower[sd.id] = Object.assign({}, sd);
             }
         }
 

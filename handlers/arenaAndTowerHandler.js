@@ -18,7 +18,7 @@ function getHeroSkillIds(hid) {
         var hCfg = Config.hero[hid];
         var sks = [];
         for (var k = 1; k <= 4; k++) {
-            var skid = hCfg["skill_" + k];
+            var skid = hCfg["skill_id_" + k] || hCfg["skill_" + k];
             if (skid && Config.skill && Config.skill[skid]) {
                 sks.push({ id: skid, lv: 80, status: 1 });
             }
@@ -136,17 +136,20 @@ const ArenaAndTowerHandler = {
                 }
 
                 if (enemyHeros.length === 0) {
-                    for (var ei = 0; ei < enemyIds.length; ei++) {
-                        var eh = this.createDefaultHeroRecord(enemyIds[ei]);
-                        eh.lv = Math.max(10, reqLayer * 3);
+                    var candidatePool = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
+                    var shift = ((reqLayer - 1) * 3) % candidatePool.length;
+                    for (var ei = 0; ei < 5; ei++) {
+                        var ehId = candidatePool[(shift + ei) % candidatePool.length];
+                        var eh = this.createDefaultHeroRecord(ehId);
+                        eh.lv = Math.min(100, Math.max(10, reqLayer * 3));
                         eh.level = eh.lv;
-                        eh.quality = Math.min(10, 1 + Math.floor(reqLayer / 3));
-                        eh.hp = 1500 + reqLayer * 500;
+                        eh.quality = Math.min(15, 1 + Math.floor(reqLayer / 3));
+                        eh.hp = 2000 + reqLayer * 800;
                         eh.maxhp = eh.hp;
-                        eh.atk = 120 + reqLayer * 40;
-                        eh.def = 40 + reqLayer * 15;
-                        eh.mp = 100 + reqLayer * 35;
-                        eh.mp_def = 40 + reqLayer * 15;
+                        eh.atk = 200 + reqLayer * 60;
+                        eh.def = 80 + reqLayer * 25;
+                        eh.mp = 150 + reqLayer * 40;
+                        eh.mp_def = 80 + reqLayer * 25;
                         eh.cri = 10;
                         eh.mp_cri = 10;
                         eh.power = 0;
@@ -195,30 +198,67 @@ const ArenaAndTowerHandler = {
             if (!this.data.tower_layers[curLayer]) {
                 this.data.tower_layers[curLayer] = { layer: curLayer };
             }
-            this.data.tower_layers[curLayer].has_pass = 1;
+            var curLData = this.data.tower_layers[curLayer];
+            curLData.has_pass = 1;
 
-            // Tự động mở khóa tầng tiếp theo
+            // Thiết lập 4 rương quà hợp lệ từ Config.box_drop nếu chưa có
+            var pickDrop = function(boxId, defaultItem) {
+                if (typeof Config !== "undefined" && Config.box_drop && Config.box_drop[boxId]) {
+                    var pool = Object.keys(Config.box_drop[boxId]);
+                    if (pool.length > 0) {
+                        return Number(pool[Math.floor(Math.random() * pool.length)]);
+                    }
+                }
+                return defaultItem;
+            };
+
+            if (!curLData.box_1_id || curLData.box_1_id === 0) curLData.box_1_id = pickDrop(82001, 80101);
+            if (!curLData.box_2_id || curLData.box_2_id === 0) curLData.box_2_id = pickDrop(82002, 80201);
+            if (!curLData.box_3_id || curLData.box_3_id === 0) curLData.box_3_id = pickDrop(82003, 80301);
+            if (!curLData.box_4_id || curLData.box_4_id === 0) curLData.box_4_id = pickDrop(82003, 80302);
+
+            // Chuẩn bị tầng tiếp theo với đội hình thủ vệ hoàn chỉnh (không để trống heros)
             if (curLayer < 35) {
                 var nextLayer = curLayer + 1;
-                this.data.tower_cur_layer = nextLayer;
-                if (!this.data.tower_layers[nextLayer]) {
+                if (!this.data.tower_layers[nextLayer] || this.data.tower_layers[nextLayer].heros === "[]") {
+                    var candidatePool = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
+                    var nextHeros = [];
+                    var shift = ((nextLayer - 1) * 3) % candidatePool.length;
+                    for (var ei = 0; ei < 5; ei++) {
+                        var ehId = candidatePool[(shift + ei) % candidatePool.length];
+                        var eh = this.createDefaultHeroRecord(ehId);
+                        eh.lv = Math.min(100, Math.max(10, nextLayer * 3));
+                        eh.level = eh.lv;
+                        eh.quality = Math.min(15, 1 + Math.floor(nextLayer / 3));
+                        eh.hp = 2000 + nextLayer * 800;
+                        eh.maxhp = eh.hp;
+                        eh.atk = 200 + nextLayer * 60;
+                        eh.def = 80 + nextLayer * 25;
+                        eh.mp = 150 + nextLayer * 40;
+                        eh.mp_def = 80 + nextLayer * 25;
+                        eh.cri = 10;
+                        eh.mp_cri = 10;
+                        eh.power = 0;
+                        nextHeros.push(eh);
+                    }
                     this.data.tower_layers[nextLayer] = {
                         player_id: this.getNumericId(),
                         layer: nextLayer,
                         has_pass: 0,
-                        player_icon: 80110010,
+                        player_icon: 80110020,
                         player_lv: Math.max(10, nextLayer * 3),
                         player_name: "Thủ Vệ Tầng " + nextLayer,
                         box_1_id: 0,
                         box_2_id: 0,
                         box_3_id: 0,
                         box_4_id: 0,
-                        heros: "[]"
+                        heros: JSON.stringify(nextHeros)
                     };
                 }
             }
 
             this.data.daily_counts["PLAYER_DIALY_TASK_9"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_9"] || 0) + 1;
+            this.save();
             respond({ status: 1 });
             return true;
         }
@@ -227,12 +267,12 @@ const ArenaAndTowerHandler = {
             var targetLayer = Number((params && params[0]) || this.data.tower_cur_layer || 1);
             if (!this.data.tower_layers) this.data.tower_layers = {};
             if (!this.data.tower_layers[targetLayer]) {
-                var enemyIds = [10010, 10020, 10040];
+                var candidatePool = [10020, 10030, 10040, 10050, 10010];
                 var enemyHeros = [];
-                for (var ei = 0; ei < enemyIds.length; ei++) {
+                for (var ei = 0; ei < candidatePool.length; ei++) {
                     enemyHeros.push({
-                        id: enemyIds[ei],
-                        hero_id: enemyIds[ei],
+                        id: candidatePool[ei],
+                        hero_id: candidatePool[ei],
                         lv: Math.min(100, 30 + targetLayer * 2),
                         quality: Math.min(13, 7 + Math.floor(targetLayer / 5))
                     });
@@ -244,10 +284,10 @@ const ArenaAndTowerHandler = {
                     player_name: "Thủ Vệ Tầng " + targetLayer,
                     player_lv: Math.min(100, 40 + targetLayer * 2),
                     player_icon: 80110010,
-                    box_1_id: 4201,
-                    box_2_id: 4202,
-                    box_3_id: 4203,
-                    box_4_id: 4204,
+                    box_1_id: 80101,
+                    box_2_id: 80201,
+                    box_3_id: 80301,
+                    box_4_id: 80302,
                     heros: JSON.stringify(enemyHeros)
                 };
             }
@@ -263,11 +303,12 @@ const ArenaAndTowerHandler = {
                 }
             }
             if (!chosenKey) {
-                chosenKey = 4204;
+                chosenKey = 80101;
                 boxIndex = 1;
             }
             lData["box_" + boxIndex + "_id"] = 0;
 
+            // Cập nhật tower_cur_layer khi mở quà
             if (this.data.tower_cur_layer < 35 && this.data.tower_cur_layer <= targetLayer) {
                 this.data.tower_cur_layer = targetLayer + 1;
             }
@@ -285,6 +326,7 @@ const ArenaAndTowerHandler = {
                 itemData = { type: 1, item_id: 10030, amount: 10 };
                 this.changeItemAmount(10030, 10, queuePush);
             }
+            this.save();
 
             respond({
                 item: itemData,
@@ -750,7 +792,15 @@ const ArenaAndTowerHandler = {
         if (cmd === SVRCMD.ArenaFightReport || cmd === SVRCMD.DarkArenaFightReport) {
             this.addStone(100, queuePush);
             this.addCurrency(10, 200, queuePush);
-            respond({ status: 1, rankChange: 1, bestRankChange: 1, stone: 100 });
+            var isWin = (params && params[1] !== undefined) ? Number(params[1]) : 1;
+            respond({
+                status: 1,
+                isWin: isWin,
+                rankChange: 1,
+                bestRankChange: 1,
+                stone: 100,
+                reward: { gold: 50000, stone: 100 }
+            });
             return true;
         }
 
@@ -1390,19 +1440,52 @@ const ArenaAndTowerHandler = {
             return true;
         }
 
-        if (cmd === "CrossPlayerDarkArenaInfo") {
+        if (cmd === "CrossPlayerDarkArenaInfo" || cmd === SVRCMD.CrossPlayerDarkArenaInfo) {
+            var defHeros1 = [
+                { hero_id: 10020, lv: 85, quality: 12, bagate_level: 1 },
+                { hero_id: 10030, lv: 85, quality: 12, bagate_level: 1 },
+                { hero_id: 10040, lv: 85, quality: 12, bagate_level: 1 },
+                { hero_id: 10050, lv: 85, quality: 12, bagate_level: 1 },
+                { hero_id: 10010, lv: 85, quality: 12, bagate_level: 1 }
+            ];
+            var defHeros2 = [
+                { hero_id: 10060, lv: 82, quality: 11, bagate_level: 1 },
+                { hero_id: 10070, lv: 82, quality: 11, bagate_level: 1 },
+                { hero_id: 10080, lv: 82, quality: 11, bagate_level: 1 },
+                { hero_id: 10090, lv: 82, quality: 11, bagate_level: 1 },
+                { hero_id: 10100, lv: 82, quality: 11, bagate_level: 1 }
+            ];
+            var defHeros3 = [
+                { hero_id: 10110, lv: 80, quality: 10, bagate_level: 1 },
+                { hero_id: 10120, lv: 80, quality: 10, bagate_level: 1 },
+                { hero_id: 10130, lv: 80, quality: 10, bagate_level: 1 },
+                { hero_id: 10140, lv: 80, quality: 10, bagate_level: 1 },
+                { hero_id: 10150, lv: 80, quality: 10, bagate_level: 1 }
+            ];
             respond({
+                player_id: 734,
+                server_id: 2,
+                team_num: 3,
+                player_name: "Obito Lục Đạo",
+                player_lv: 98,
+                player_icon: 80110020,
+                def_heros_1: JSON.stringify(defHeros1),
+                def_heros_2: JSON.stringify(defHeros2),
+                def_heros_3: JSON.stringify(defHeros3),
                 player: { player_id: 734, player_name: "Obito Lục Đạo", server_id: 2, rank: 2, score: 2050, icon: 11050, team_lv: 98 },
-                heros: [
-                    { hero_id: 11050, lv: 98, quality: 18, star: 5 },
-                    { hero_id: 10650, lv: 98, quality: 18, star: 5 }
-                ]
+                heros: defHeros1
             });
             return true;
         }
 
-        if (cmd === "CrossSetDarkArenaLineup") {
-            this.data.cross_dark_lineup = (params && params[0]) ? params[0] : [10010, 10020, 10030, 10040, 10050];
+        if (cmd === "CrossSetDarkArenaLineup" || cmd === SVRCMD.CrossSetDarkArenaLineup) {
+            if (params && params.length >= 2) {
+                if (!this.data.cross_dark_lineups) this.data.cross_dark_lineups = {};
+                for (var li = 1; li < params.length; li++) {
+                    if (params[li]) this.data.cross_dark_lineups[li] = String(params[li]);
+                }
+            }
+            this.save();
             respond({ status: 1 });
             return true;
         }
@@ -1415,14 +1498,22 @@ const ArenaAndTowerHandler = {
             this.addCurrency(14, 120, queuePush);
 
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [11050, 10650, 10710], true, 6);
+            if (myHeroIds.length === 0) myHeroIds = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
+
+            var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10030, 10040, 10050, 10010], true, 6);
+            var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10060, 10070, 10080, 10090, 10100], true, 6);
+            var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15), [10110, 10120, 10130, 10140, 10150], true, 6);
+
+            this.save();
 
             respond({
                 useZip: false,
                 isWin: 1,
                 rank: 1,
                 score: this.data.cross_dark_score,
-                fightData1: fData1
+                fightData1: fData1,
+                fightData2: fData2,
+                fightData3: fData3
             });
             return true;
         }
