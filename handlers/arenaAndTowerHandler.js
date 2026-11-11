@@ -58,7 +58,7 @@ function writeHeroToBuffer(pw, uid, hid) {
     pw.appendByte(0);     // has_awake
 }
 
-function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec) {
+function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) {
     var pw = new PackageWriter();
     pw.appendShort(0);
     pw.appendByte(0);
@@ -73,10 +73,11 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec) {
     pw.appendByte(isWin ? 1 : 0);
 
     var bmStr = pw.getPackage().join(",");
+    var replaySeed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 1000000) + 1;
     var replayObj = {
         bm: bmStr,
         result: !!isWin,
-        seed: Math.floor(Math.random() * 1000000),
+        seed: replaySeed,
         arena_protocol: 2,
         maxframetime: (durationSec || 5) * 1000
     };
@@ -466,15 +467,36 @@ const ArenaAndTowerHandler = {
             var isWin = Number((params && params[1]) !== undefined ? params[1] : 1);
             var curDiff = Number(this.data.expedition_diff || 1);
             var maxWaves = (curDiff === 4 ? 50 : 15);
-            if (isWin) {
-                if (params && params[3]) {
-                    this.data.expedition_hero_info = JSON.stringify(params[3]);
+            // params: [signCode, is_win, hero_obj, npc_obj, hire_obj]
+            // hero_obj (params[2]): player's heroes HP & Power
+            var playerHeroes = (params && (params[2] || (params[3] && !params[2] ? params[3] : null))) || null;
+            if (playerHeroes && typeof playerHeroes === "object") {
+                var currentHeroInfo = {};
+                try {
+                    if (this.data.expedition_hero_info) {
+                        currentHeroInfo = JSON.parse(this.data.expedition_hero_info) || {};
+                    }
+                } catch (e) {
+                    currentHeroInfo = {};
                 }
+                for (var hid in playerHeroes) {
+                    var h = playerHeroes[hid];
+                    if (h && typeof h === "object") {
+                        currentHeroInfo[hid] = {
+                            id: Number(h.id || hid),
+                            hp: Math.max(0, Math.floor(Number(h.hp || 0))),
+                            power: Math.max(0, Math.floor(Number(h.power || 0)))
+                        };
+                    }
+                }
+                this.data.expedition_hero_info = JSON.stringify(currentHeroInfo);
+            }
+            if (isWin) {
                 this.data.expedition_wave = Math.min(maxWaves + 1, Number(this.data.expedition_wave || 1) + 1);
                 this.addTeamExp(20);
                 this.data.daily_counts["PLAYER_DIALY_TASK_11"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_11"] || 0) + 1;
-                this.save();
             }
+            this.save();
             respond({ is_win: isWin ? 1 : 0 });
             return true;
         }
@@ -753,9 +775,10 @@ const ArenaAndTowerHandler = {
             if (cmd === SVRCMD.DarkArenaFight) {
                 this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
                 var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-                var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6);
-                var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10010, 10030, 10080], true, 6);
-                var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15), [10110, 10120, 10140], true, 6);
+                if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
+                var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6, 1001);
+                var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10010, 10030, 10080], true, 6, 1002);
+                var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15), [10110, 10120, 10140], true, 6, 1003);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
@@ -772,14 +795,16 @@ const ArenaAndTowerHandler = {
             } else {
                 this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
                 var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-                var fData = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6);
+                if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
+                var fightSeed = Math.floor(Math.random() * 900000) + 100000;
+                var fData = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10040, 10070], true, 6, fightSeed);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
                     skipReply: false,
                     isWin: 1,
                     arena_request_id: reqId,
-                    seed: Math.floor(Math.random() * 1000000),
+                    seed: fightSeed,
                     fight_data: fData,
                     rank: newRank,
                     settled: true,
