@@ -74,12 +74,20 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
 
     var bmStr = pw.getPackage().join(",");
     var replaySeed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 1000000) + 1;
+    var dmgMap = {};
+    for (var i = 0; i < atkHeros.length; i++) {
+        dmgMap[String(1000 + i)] = isWin ? 50000 : 10000;
+    }
+    for (var j = 0; j < defHeros.length; j++) {
+        dmgMap[String(2000 + j)] = isWin ? 10000 : 50000;
+    }
     var replayObj = {
         bm: bmStr,
         result: !!isWin,
         seed: replaySeed,
         arena_protocol: 2,
-        maxframetime: (durationSec || 5) * 1000
+        maxframetime: (durationSec || 5) * 1000,
+        d: dmgMap
     };
     return JSON.stringify(replayObj);
 }
@@ -718,10 +726,30 @@ const ArenaAndTowerHandler = {
             var botHero1 = this.createDefaultHeroRecord(10020);
             var botHero2 = this.createDefaultHeroRecord(10040);
             var botHero3 = this.createDefaultHeroRecord(10070);
-            var defStr = JSON.stringify([botHero1, botHero2, botHero3]);
-            var r1 = Math.max(1, myRank - 15);
-            var r2 = Math.max(1, myRank - 8);
-            var r3 = Math.max(1, myRank - 3);
+            var botHero4 = this.createDefaultHeroRecord(10010);
+            var botHero5 = this.createDefaultHeroRecord(10030);
+            var defStr = JSON.stringify([botHero1, botHero2, botHero3, botHero4, botHero5]);
+
+            var r1, r2, r3;
+            if (myRank === 1) {
+                // Người chơi đang ở Top 1 -> hiển thị các đối thủ hạng 2, 3, 4 để khiêu chiến
+                r1 = 2;
+                r2 = 3;
+                r3 = 4;
+            } else if (myRank === 2) {
+                r1 = 1;
+                r2 = 3;
+                r3 = 4;
+            } else if (myRank === 3) {
+                r1 = 1;
+                r2 = 2;
+                r3 = 4;
+            } else {
+                r1 = Math.max(1, myRank - 15);
+                r2 = Math.max(1, myRank - 8);
+                r3 = Math.max(1, myRank - 3);
+            }
+
             var f1 = { rank: r1, icon: 30610460, win_count: 50, player_lv: 85, player_name: "Kakashi Hatake", player_id: 101, fighter_id: 101, fight_value: 696039, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
             var f2 = { rank: r2, icon: 80110020, win_count: 30, player_lv: 80, player_name: "Naruto Uzumaki", player_id: 102, fighter_id: 102, fight_value: 580000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
             var f3 = { rank: r3, icon: 80110040, win_count: 10, player_lv: 75, player_name: "Sakura Haruno", player_id: 103, fighter_id: 103, fight_value: 450000, server_id: 1, def_heros: defStr, def_heros_1: defStr, def_heros_2: defStr, def_heros_3: defStr };
@@ -754,6 +782,7 @@ const ArenaAndTowerHandler = {
                 player_lv: 80,
                 icon: 30610460,
                 fight_value: 500000,
+                def_heros: JSON.stringify(defArr1),
                 def_heros_1: JSON.stringify(defArr1),
                 def_heros_2: JSON.stringify(defArr2),
                 def_heros_3: JSON.stringify(defArr3)
