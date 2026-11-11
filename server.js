@@ -32,7 +32,19 @@ const {
     findPlayerByIdOrUid
 } = require('./db/database');
 
-// 3. Load Services & Domain Handlers
+// Ring buffer for live in-memory logs (visible via /logs and /api/logs)
+const liveLogs = [];
+const MAX_LIVE_LOGS = 300;
+function addLiveLog(type, msg) {
+    const entry = {
+        time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        type: type,
+        msg: msg
+    };
+    liveLogs.push(entry);
+    if (liveLogs.length > MAX_LIVE_LOGS) liveLogs.shift();
+}
+
 const EconomyService = require('./services/economyService');
 const handlePlayer = require('./handlers/playerHandler');
 const handleChapter = require('./handlers/chapterHandler');
@@ -307,7 +319,9 @@ class PlayerSession {
     }
 
     handle(cmd, params) {
-        console.log(`[REQ] ${this.playerId} (${this.username}) -> ${cmd} :`, JSON.stringify(params || []));
+        const reqLog = `[REQ] ${this.playerId} (${this.username}) -> ${cmd} : ${JSON.stringify(params || [])}`;
+        console.log(reqLog);
+        addLiveLog("REQ", reqLog);
         if (cmd === "Login" || (typeof SVRCMD !== "undefined" && cmd === SVRCMD.Login)) {
             this.hasLoggedIn = true;
             const uid = (params && params[0]) ? String(params[0]) : "1";
@@ -371,7 +385,10 @@ class PlayerSession {
         };
 
         const respond = (respData, err) => {
-            console.log(`[RESP] ${this.playerId} (${this.username}) <- ${cmd} :`, JSON.stringify(respData ? Object.keys(respData) : respData), err ? JSON.stringify(err) : "OK");
+            const respSummary = respData ? (typeof respData === "object" ? (Array.isArray(respData) ? `Array(${respData.length})` : Object.keys(respData)) : respData) : respData;
+            const respLog = `[RESP] ${this.playerId} (${this.username}) <- ${cmd} : ${JSON.stringify(respSummary)} ${err ? JSON.stringify(err) : "OK"}`;
+            console.log(respLog);
+            addLiveLog("RESP", respLog);
             for (const q of queue) {
                 this.sendPacket(q.func_name, q.data);
             }
@@ -474,6 +491,80 @@ const server = http.createServer((req, res) => {
             registered_players: Object.keys(playerDb).length,
             uptime_seconds: Math.floor(process.uptime())
         }));
+        return;
+    }
+
+    if (req.url === '/api/logs' || req.url === '/logs.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+            total: liveLogs.length,
+            logs: liveLogs
+        }));
+        return;
+    }
+
+    if (req.url === '/logs' || req.url === '/watch' || req.url === '/watch-log') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Ninja Rebirth - Live Server Logs</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { background: #0d1117; color: #c9d1d9; font-family: Consolas, monospace; padding: 20px; margin: 0; }
+                h2 { color: #58a6ff; margin-top: 0; }
+                .toolbar { margin-bottom: 15px; }
+                button { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+                button:hover { background: #2ea043; }
+                #log-container { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 15px; height: 80vh; overflow-y: auto; font-size: 13px; line-height: 1.6; }
+                .log-line { margin: 2px 0; word-break: break-all; }
+                .time { color: #8b949e; }
+                .req { color: #79c0ff; font-weight: bold; }
+                .resp { color: #7ee787; font-weight: bold; }
+                .err { color: #ff7b72; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <h2>🍃 Ninja Rebirth - Live Packet Watcher</h2>
+            <div class="toolbar">
+                <button onclick="togglePause()" id="pause-btn">Pause Auto-Scroll</button>
+                <button onclick="clearDisplay()" style="background:#da3633;">Clear View</button>
+                <span id="status" style="margin-left: 15px; color: #8b949e;">Connecting...</span>
+            </div>
+            <div id="log-container"></div>
+            <script>
+                let autoScroll = true;
+                const container = document.getElementById('log-container');
+                const statusSpan = document.getElementById('status');
+                function togglePause() {
+                    autoScroll = !autoScroll;
+                    document.getElementById('pause-btn').textContent = autoScroll ? 'Pause Auto-Scroll' : 'Resume Auto-Scroll';
+                }
+                function clearDisplay() {
+                    container.innerHTML = '';
+                }
+                async function fetchLogs() {
+                    try {
+                        const res = await fetch('/api/logs');
+                        const data = await res.json();
+                        statusSpan.textContent = 'Active (Total packets: ' + data.total + ')';
+                        container.innerHTML = data.logs.map(l => {
+                            const cls = l.type === 'REQ' ? 'req' : (l.type === 'RESP' ? 'resp' : 'err');
+                            return '<div class="log-line"><span class="time">[' + l.time + ']</span> <span class="' + cls + '">[' + l.type + ']</span> ' + l.msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                        }).join('');
+                        if (autoScroll) container.scrollTop = container.scrollHeight;
+                    } catch (e) {
+                        statusSpan.textContent = 'Error: ' + e.message;
+                    }
+                }
+                setInterval(fetchLogs, 1000);
+                fetchLogs();
+            </script>
+        </body>
+        </html>
+        `);
         return;
     }
 
