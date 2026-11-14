@@ -4,13 +4,14 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const http = require("http");
 
 const CLIENT_BATTLE_DIR = path.join(__dirname, "..", "battle_engine", "modules", "battle");
 
 let _simContext = null;
 
 function createCcClass() {
-    const Class = function () {};
+    const Class = function () { };
     Class.extend = function (prop) {
         const _super = this.prototype;
         const prototype = Object.create(_super);
@@ -65,15 +66,15 @@ function initSimContext() {
             const len = Math.sqrt(p.x * p.x + p.y * p.y);
             return len > 0 ? { x: p.x / len, y: p.y / len } : { x: 0, y: 0 };
         },
-        log: function () {},
-        warn: function () {},
-        error: function () {},
+        log: function () { },
+        warn: function () { },
+        error: function () { },
         assert: function (cond, msg) { if (!cond) throw new Error(msg || "Assertion failed"); },
         director: {
             getScheduler: function () {
                 return {
-                    scheduleUpdateForTarget: function () {},
-                    unscheduleUpdateForTarget: function () {}
+                    scheduleUpdateForTarget: function () { },
+                    unscheduleUpdateForTarget: function () { }
                 };
             }
         },
@@ -88,9 +89,9 @@ function initSimContext() {
 
     const eventDispatcherShim = {
         _shared: {
-            addListener: function () {},
-            removeListenerByDelgate: function () {},
-            dispatchEvent: function () {}
+            addListener: function () { },
+            removeListenerByDelgate: function () { },
+            dispatchEvent: function () { }
         },
         shared: function () { return this._shared; }
     };
@@ -124,10 +125,10 @@ function initSimContext() {
             },
             getBamenAddSpeed: function () { return 0; }
         },
-        AudioManager: { playEffect: function () {} },
-        SoundManager: { playEffect: function () {} },
+        AudioManager: { playEffect: function () { } },
+        SoundManager: { playEffect: function () { } },
         LANSTR: new Proxy({}, { get: function (_, k) { return String(k); } }),
-        clearSkillCacheList: function () {},
+        clearSkillCacheList: function () { },
         UBYTE_MAX: 256,
         USHORT_MAX: 65536,
         UINT_MAX: 4294967296
@@ -211,5 +212,105 @@ function simulateBattleFromBm(bmStr, seed) {
 
 module.exports = {
     initSimContext,
-    simulateBattleFromBm
+    simulateBattleFromBm,
+    checkAndUpdateBattleEngine
 };
+
+const BATTLE_ENGINE_RELS = [
+    "utils/SCRandom.js",
+    "baseModel/Hero.js",
+    "baseModel/Skill.js",
+    "netWork/PackageReader.js",
+    "netWork/PackageWriter.js",
+    "modules/battle/BattleEvent.js",
+    "modules/battle/Juggler.js",
+    "modules/battle/DelayedCall.js",
+    "modules/battle/BattleIdea.js",
+    "modules/battle/BattleAI.js",
+    "modules/battle/BattleSkillEffect.js",
+    "modules/battle/BattleAction.js",
+    "modules/battle/BattleActionGenerater.js",
+    "modules/battle/BattleUnit.js",
+    "modules/battle/BattleModle.js",
+    "modules/battle/ReplayData.js",
+    "modules/battle/BattleManager.js"
+];
+
+function decryptDdsBuffer(buf) {
+    if (!Buffer.isBuffer(buf) || buf.length < 12 || buf.slice(0, 3).toString("ascii") !== "DDS") {
+        return buf;
+    }
+    const keyFile = path.join(__dirname, "..", "battle_engine", "dds_key.json");
+    if (!fs.existsSync(keyFile)) return buf;
+    const KEY_TABLE = JSON.parse(fs.readFileSync(keyFile, "utf8"));
+    const out = Buffer.from(buf);
+    const numWords = Math.floor((out.length - 8) / 4);
+    let keyIdx = 0;
+    const n1 = Math.min(numWords, 512);
+    for (let i = 0; i < n1; i++) {
+        const off = 8 + i * 4;
+        const w = (out.readUInt32LE(off) ^ (KEY_TABLE[keyIdx] >>> 0)) >>> 0;
+        out.writeUInt32LE(w, off);
+        keyIdx = (keyIdx + 1) % 1024;
+    }
+    for (let i = 512; i < numWords; i += 64) {
+        const off = 8 + i * 4;
+        const w = (out.readUInt32LE(off) ^ (KEY_TABLE[keyIdx] >>> 0)) >>> 0;
+        out.writeUInt32LE(w, off);
+        keyIdx = (keyIdx + 1) % 1024;
+    }
+    return out.slice(8);
+}
+
+function fetchBuffer(url) {
+    return new Promise((resolve, reject) => {
+        http.get(url, (res) => {
+            if (res.statusCode !== 200) {
+                res.resume();
+                return reject(new Error("HTTP " + res.statusCode));
+            }
+            const chunks = [];
+            res.on("data", (c) => chunks.push(c));
+            res.on("end", () => resolve(Buffer.concat(chunks)));
+        }).on("error", reject);
+    });
+}
+
+async function checkAndUpdateBattleEngine() {
+    try {
+        const manifestUrl = "http://103.90.227.124:8080/static/hotfix/android/project.manifest";
+        const raw = await fetchBuffer(manifestUrl);
+        const manifest = JSON.parse(raw.toString("utf8"));
+        const assets = manifest.assets || {};
+        const pkgUrl = manifest.packageUrl || "http://103.90.227.124:8080/static/hotfix/android/";
+        const md5File = path.join(__dirname, "..", "battle_engine", ".manifest_md5.json");
+        let savedMd5 = {};
+        if (fs.existsSync(md5File)) {
+            try { savedMd5 = JSON.parse(fs.readFileSync(md5File, "utf8")) || {}; } catch (e) { }
+        }
+        let updated = 0;
+        for (const rel of BATTLE_ENGINE_RELS) {
+            const key = "src/" + rel;
+            const entry = assets[key];
+            if (!entry || !entry.md5) continue;
+            if (savedMd5[key] === entry.md5) continue;
+            const fileBuf = await fetchBuffer(pkgUrl + key);
+            const decBuf = decryptDdsBuffer(fileBuf);
+            const outPath = path.join(__dirname, "..", "battle_engine", rel);
+            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+            fs.writeFileSync(outPath, decBuf);
+            savedMd5[key] = entry.md5;
+            updated++;
+        }
+        if (updated > 0) {
+            fs.writeFileSync(md5File, JSON.stringify(savedMd5, null, 2), "utf8");
+            _simContext = null; // Reload battle engine on next simulation
+            console.log("[BattleSimulator] Auto-updated " + updated + " battle engine files from hotfix.");
+        }
+    } catch (e) {
+        // Ignore network errors so server keeps running with local battle_engine
+    }
+}
+
+setTimeout(checkAndUpdateBattleEngine, 5000);
+setInterval(checkAndUpdateBattleEngine, 30 * 60 * 1000);
