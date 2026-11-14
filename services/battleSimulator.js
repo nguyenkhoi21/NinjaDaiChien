@@ -130,6 +130,9 @@ function initSimContext() {
         SoundManager: { playEffect: function () { } },
         LANSTR: new Proxy({}, { get: function (_, k) { return String(k); } }),
         clearSkillCacheList: function () { },
+        stat_add: function (target, prop, val) {
+            if (target && target[prop] !== undefined) target[prop] += Number(val || 0);
+        },
         zip_deflate: function (str) {
             return zlib.deflateRawSync(Buffer.from(String(str), "utf8")).toString("base64");
         },
@@ -163,6 +166,7 @@ function initSimContext() {
     `, ctx);
 
     const baseModelFiles = [
+        path.join(__dirname, "..", "battle_engine", "skill_constants.js"),
         path.join(__dirname, "..", "battle_engine", "utils", "SCRandom.js"),
         path.join(__dirname, "..", "battle_engine", "baseModel", "Hero.js"),
         path.join(__dirname, "..", "battle_engine", "baseModel", "Skill.js"),

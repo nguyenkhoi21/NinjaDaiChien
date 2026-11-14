@@ -90,7 +90,7 @@ function getHeroSkillIds(heroOrId) {
                 if (hObj && hObj["skill_" + k + "_lv"] !== undefined) {
                     skLv = Number(hObj["skill_" + k + "_lv"]) || 1;
                 }
-                sks.push({ id: skid, lv: skLv, status: 1 });
+                sks.push({ id: skid, lv: skLv, status: 0 });
             }
         }
     }
