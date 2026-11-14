@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const CLIENT_BATTLE_DIR = path.join(__dirname, "..", "..", "v63_base_clean", "modules", "battle");
+const CLIENT_BATTLE_DIR = path.join(__dirname, "..", "battle_engine", "modules", "battle");
 
 let _simContext = null;
 
@@ -138,11 +138,11 @@ function initSimContext() {
     const ctx = vm.createContext(sandbox);
 
     const baseModelFiles = [
-        path.join(__dirname, "..", "..", "v63_base_clean", "utils", "SCRandom.js"),
-        path.join(__dirname, "..", "..", "v63_base_clean", "baseModel", "Hero.js"),
-        path.join(__dirname, "..", "..", "v63_base_clean", "baseModel", "Skill.js"),
-        path.join(__dirname, "..", "..", "v63_base_clean", "netWork", "PackageReader.js"),
-        path.join(__dirname, "..", "..", "v63_base_clean", "netWork", "PackageWriter.js")
+        path.join(__dirname, "..", "battle_engine", "utils", "SCRandom.js"),
+        path.join(__dirname, "..", "battle_engine", "baseModel", "Hero.js"),
+        path.join(__dirname, "..", "battle_engine", "baseModel", "Skill.js"),
+        path.join(__dirname, "..", "battle_engine", "netWork", "PackageReader.js"),
+        path.join(__dirname, "..", "battle_engine", "netWork", "PackageWriter.js")
     ];
     for (const f of baseModelFiles) {
         if (fs.existsSync(f)) {
