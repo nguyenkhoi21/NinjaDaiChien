@@ -221,7 +221,7 @@ const HeroHandler = {
                 var sec = this.data.secrets[si];
                 if (Number(sec.hero_id) === hid && Number(sec.status) === 1) {
                     var sPos = Number(sec.pos || 0);
-                    if (sPos >= 1 && sPos <= 6) {
+                    if ((sPos >= 1 && sPos <= 6) || (sPos >= 101 && sPos <= 106)) {
                         secMap[sPos] = sec;
                     }
                     if (typeof Config !== "undefined" && Config.equip && Config.equip[sec.equip_id]) {
@@ -239,6 +239,16 @@ const HeroHandler = {
             }
         }
 
+        var finalHp = Math.floor(hp);
+        var finalAtk = Math.floor(atk);
+        var finalDef = Math.floor(def);
+        var finalMp = Math.floor(mp);
+        var finalMpDef = Math.floor(mp_def);
+        var finalCri = Number(cri.toFixed(2));
+        var finalMpCri = Number(mp_cri.toFixed(2));
+        var skillSum = Number(h.skill_1_lv || 1) + Number(h.skill_2_lv || 0) + Number(h.skill_3_lv || 0) + Number(h.skill_4_lv || 0) + Number(h.skill_5_lv || 0);
+        var totalPower = Math.floor(finalHp * 0.1 + finalAtk * 0.6 + finalDef * 0.3 + finalMp * 0.6 + finalMpDef * 0.3 + finalCri * 25 + finalMpCri * 25 + skillSum * 4);
+
         return {
             id: hid,
             hero_id: hid,
@@ -251,13 +261,15 @@ const HeroHandler = {
             beast: heroBeasts.length,
             has_awake: Number(h.has_awake || 0),
             bagate_level: bgLv,
-            hp: Math.floor(hp),
-            atk: Math.floor(atk),
-            def: Math.floor(def),
-            mp: Math.floor(mp),
-            mp_def: Math.floor(mp_def),
-            cri: Number(cri.toFixed(2)),
-            mp_cri: Number(mp_cri.toFixed(2)),
+            hp: finalHp,
+            maxhp: finalHp,
+            atk: finalAtk,
+            def: finalDef,
+            mp: finalMp,
+            mp_def: finalMpDef,
+            cri: finalCri,
+            mp_cri: finalMpCri,
+            power: totalPower,
             equip_1: Number(h.equip_1 || 0),
             equip_2: Number(h.equip_2 || 0),
             equip_3: Number(h.equip_3 || 0),
@@ -282,6 +294,18 @@ const HeroHandler = {
             secret_5_lv: secMap[5] ? Number(secMap[5].lv || 1) : 0,
             secret_6_id: secMap[6] ? Number(secMap[6].equip_id) : 0,
             secret_6_lv: secMap[6] ? Number(secMap[6].lv || 1) : 0,
+            secret_101_id: secMap[101] ? Number(secMap[101].equip_id) : 0,
+            secret_101_lv: secMap[101] ? Number(secMap[101].lv || 1) : 0,
+            secret_102_id: secMap[102] ? Number(secMap[102].equip_id) : 0,
+            secret_102_lv: secMap[102] ? Number(secMap[102].lv || 1) : 0,
+            secret_103_id: secMap[103] ? Number(secMap[103].equip_id) : 0,
+            secret_103_lv: secMap[103] ? Number(secMap[103].lv || 1) : 0,
+            secret_104_id: secMap[104] ? Number(secMap[104].equip_id) : 0,
+            secret_104_lv: secMap[104] ? Number(secMap[104].lv || 1) : 0,
+            secret_105_id: secMap[105] ? Number(secMap[105].equip_id) : 0,
+            secret_105_lv: secMap[105] ? Number(secMap[105].lv || 1) : 0,
+            secret_106_id: secMap[106] ? Number(secMap[106].equip_id) : 0,
+            secret_106_lv: secMap[106] ? Number(secMap[106].lv || 1) : 0,
             skill_1_lv: Number(h.skill_1_lv || 1),
             skill_2_lv: Number(h.skill_2_lv || 0),
             skill_3_lv: Number(h.skill_3_lv || 0),

@@ -358,6 +358,22 @@ const ShopAndBoxHandler = {
                 this.data.skill_point = curSp + spAdd;
                 this.data.skill_points = this.data.skill_point;
                 this.data.last_skill_time = Math.floor(Date.now() / 1000);
+            } else if (goods2Id === 3001) {
+                // Buy Arena fight attempts (ID_PK_BUY)
+                this.data.arena_fight_count = 0;
+                this.data.arena_last_fight_time = 0;
+            } else if (goods2Id === 12001) {
+                // Buy Dark Arena (Lôi Đài Kage) fight attempts (ID_SHADOW_BUY)
+                this.data.dark_arena_fight_count = 0;
+                this.data.dark_arena_last_fight_time = 0;
+            } else if (goods2Id === 18001) {
+                // Buy Cross Arena fight attempts (ID_CS_Arena_BUY)
+                this.data.cross_arena_fight_count = 0;
+                this.data.cross_arena_last_fight_time = 0;
+            } else if (goods2Id === 15001) {
+                // Buy Cross Dark Arena fight attempts (ID_CS_SHADOW_BUY)
+                this.data.cross_dark_fight_count = 0;
+                this.data.cross_dark_last_fight_time = 0;
             }
 
             queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());

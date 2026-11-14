@@ -161,11 +161,14 @@ function writeHeroToBuffer(pw, uid, heroOrId) {
     pw.appendByte(hasAwake);              // has_awake
 }
 
-function generateCompetentHeroRecord(hid, level, quality, star) {
+function generateCompetentHeroRecord(hid, level, quality, star, opts) {
     hid = Number(hid);
-    level = Math.max(1, Number(level || 80));
-    quality = Math.max(1, Number(quality || 10));
-    star = Math.max(1, Number(star || 4));
+    if (typeof Config !== "undefined" && Config.hero && !Config.hero[hid]) {
+        hid = 10010;
+    }
+    level = Math.max(1, Number(level || 20));
+    quality = Math.max(1, Math.min(18, Number(quality || 1)));
+    star = Math.max(1, Number(star || 1));
     if (typeof Config !== "undefined" && Config.hero && Config.hero[hid] && Config.hero[hid].star) {
         star = Math.max(star, Number(Config.hero[hid].star));
     }
@@ -182,7 +185,15 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
         }
     }
 
-    var bagateLv = Math.min(8, Math.floor(level / 12));
+    var bagateLv = (opts && opts.bagateLv !== undefined)
+        ? Math.max(0, Math.min(8, Number(opts.bagateLv)))
+        : (level < 25 ? 0 : Math.min(8, Math.floor((level - 15) / 10)));
+    var equipCount = (opts && opts.equipCount !== undefined)
+        ? Math.max(0, Math.min(6, Number(opts.equipCount)))
+        : (quality <= 1 && level < 10
+            ? Math.min(6, Math.floor(level / 2))
+            : Math.min(6, Math.max(2, Math.floor(level / 10) + 1)));
+
     var hp = Number(qCfg.hp || 150) + (level - 1) * Number(qCfg.hp_inc || 15);
     var atk = Number(qCfg.atk || 20) + (level - 1) * Number(qCfg.atk_inc || 3);
     var def = Number(qCfg.def || 5) + (level - 1) * Number(qCfg.def_inc || 1);
@@ -192,7 +203,7 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
     var mpCri = Number(qCfg.mp_cri || 0.05);
 
     if (typeof Config !== "undefined" && Config.equip) {
-        for (var s = 1; s <= 6; s++) {
+        for (var s = 1; s <= equipCount; s++) {
             var eqId = qCfg["equip_" + s];
             var eqCfg = eqId ? Config.equip[eqId] : null;
             if (eqCfg) {
@@ -221,6 +232,25 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
     }
 
     var finalHp = Math.max(150, Math.floor(hp));
+    var finalAtk = Math.max(20, Math.floor(atk));
+    var finalDef = Math.max(5, Math.floor(def));
+    var finalMp = Math.max(15, Math.floor(mp));
+    var finalMpDef = Math.max(5, Math.floor(mpDef));
+    var finalCri = Number(cri.toFixed(2));
+    var finalMpCri = Number(mpCri.toFixed(2));
+
+    var sk1 = level;
+    var sk2 = qVal >= 2 ? level : 0;
+    var sk3 = qVal >= 4 ? Math.max(1, level - 15) : 0;
+    var sk4 = qVal >= 7 ? Math.max(1, level - 30) : 0;
+    var sk5 = qVal >= 12 ? Math.max(1, level - 45) : 0;
+    var totalPower = Math.floor(
+        finalHp * 0.1 + finalAtk * 0.6 + finalDef * 0.3 +
+        finalMp * 0.6 + finalMpDef * 0.3 +
+        finalCri * 25 + finalMpCri * 25 +
+        (sk1 + sk2 + sk3 + sk4 + sk5) * 4
+    );
+
     return {
         id: hid,
         hero_id: hid,
@@ -230,33 +260,35 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
         quality: qVal,
         star: star,
         status: 0,
-        has_awake: (qVal >= 11) ? 1 : 0,
+        beast: 0,
+        has_awake: (qVal >= 12) ? 1 : 0,
         bagate_level: bagateLv,
         hp: finalHp,
         maxhp: finalHp,
-        atk: Math.max(20, Math.floor(atk)),
-        def: Math.max(5, Math.floor(def)),
-        mp: Math.max(15, Math.floor(mp)),
-        mp_def: Math.max(5, Math.floor(mpDef)),
-        cri: Number(cri.toFixed(2)),
-        mp_cri: Number(mpCri.toFixed(2)),
-        equip_1: 1,
-        equip_2: 1,
-        equip_3: 1,
-        equip_4: 1,
-        equip_5: 1,
-        equip_6: 1,
+        atk: finalAtk,
+        def: finalDef,
+        mp: finalMp,
+        mp_def: finalMpDef,
+        cri: finalCri,
+        mp_cri: finalMpCri,
+        power: totalPower,
+        equip_1: equipCount >= 1 ? 1 : 0,
+        equip_2: equipCount >= 2 ? 1 : 0,
+        equip_3: equipCount >= 3 ? 1 : 0,
+        equip_4: equipCount >= 4 ? 1 : 0,
+        equip_5: equipCount >= 5 ? 1 : 0,
+        equip_6: equipCount >= 6 ? 1 : 0,
         ninja_tool_1: 0,
         ninja_tool_2: 0,
         ninja_tool_3: 0,
         ninja_tool_4: 0,
         ninja_tool_5: 0,
         ninja_tool_6: 0,
-        skill_1_lv: level,
-        skill_2_lv: qVal >= 2 ? level : 0,
-        skill_3_lv: qVal >= 4 ? Math.max(1, level - 20) : 0,
-        skill_4_lv: qVal >= 7 ? Math.max(1, level - 40) : 0,
-        skill_5_lv: (qVal >= 11) ? Math.max(1, level - 50) : 0,
+        skill_1_lv: sk1,
+        skill_2_lv: sk2,
+        skill_3_lv: sk3,
+        skill_4_lv: sk4,
+        skill_5_lv: sk5,
         skill_6_lv: (qVal >= 13) ? level : 0,
         skill_7_lv: (qVal >= 14) ? level : 0,
         skill_8_lv: (qVal >= 15) ? Math.max(1, level - 20) : 0,
@@ -270,7 +302,434 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
         secret_3_id: 0, secret_3_lv: 0,
         secret_4_id: 0, secret_4_lv: 0,
         secret_5_id: 0, secret_5_lv: 0,
-        secret_6_id: 0, secret_6_lv: 0
+        secret_6_id: 0, secret_6_lv: 0,
+        secret_101_id: 0, secret_101_lv: 0,
+        secret_102_id: 0, secret_102_lv: 0,
+        secret_103_id: 0, secret_103_lv: 0,
+        secret_104_id: 0, secret_104_lv: 0,
+        secret_105_id: 0, secret_105_lv: 0,
+        secret_106_id: 0, secret_106_lv: 0
+    };
+}
+
+function getTodayDateKey() {
+    var nowPlus7 = new Date(Date.now() + 7 * 3600 * 1000);
+    return nowPlus7.toISOString().slice(0, 10);
+}
+
+function resetDailyArenaCountersIfNeeded(playerData, prefix) {
+    if (!playerData) return getTodayDateKey();
+    var today = getTodayDateKey();
+    var dateField = prefix + "_date";
+    if (playerData[dateField] !== today) {
+        playerData[dateField] = today;
+        playerData[prefix + "_fight_count"] = 0;
+        playerData[prefix + "_buy_count"] = 0;
+        playerData[prefix + "_last_fight_time"] = 0;
+    }
+    return today;
+}
+
+function computeArenaHeroPower(h) {
+    if (!h) return 0;
+    if (Number(h.power || 0) > 0) return Number(h.power);
+    var skSum = Number(h.skill_1_lv || 1) + Number(h.skill_2_lv || 0) + Number(h.skill_3_lv || 0) + Number(h.skill_4_lv || 0) + Number(h.skill_5_lv || 0);
+    return Math.floor(
+        Number(h.hp || h.maxhp || 0) * 0.1 +
+        Number(h.atk || 0) * 0.6 +
+        Number(h.def || 0) * 0.3 +
+        Number(h.mp || 0) * 0.6 +
+        Number(h.mp_def || 0) * 0.3 +
+        Number(h.cri || 0) * 25 +
+        Number(h.mp_cri || 0) * 25 +
+        skSum * 4
+    );
+}
+
+function calcArenaTeamPower(heroList) {
+    if (!Array.isArray(heroList) || heroList.length === 0) return 0;
+    var sum = 0;
+    for (var i = 0; i < heroList.length; i++) {
+        sum += computeArenaHeroPower(heroList[i]);
+    }
+    return sum;
+}
+
+function computeOtherPlayerHeroPayload(session, pd, hid) {
+    hid = Number(hid);
+    if (pd && pd.heros && pd.heros[hid] && session && typeof session.computeHeroPayload === "function") {
+        try {
+            var clonedHeros = {};
+            clonedHeros[hid] = Object.assign({}, pd.heros[hid]);
+            var fakeCtx = {
+                data: {
+                    heros: clonedHeros,
+                    beasts: pd.beasts || {},
+                    secrets: pd.secrets || []
+                },
+                createDefaultHeroRecord: session.createDefaultHeroRecord
+            };
+            return session.computeHeroPayload.call(fakeCtx, hid);
+        } catch (e) { }
+    }
+    return generateCompetentHeroRecord(hid, pd ? Number(pd.team_lv || 20) : 20, 1, 1);
+}
+
+function parseHeroIdInput(rawInput) {
+    var arr = [];
+    if (!rawInput) return arr;
+    if (typeof rawInput === "string") {
+        var trimmed = rawInput.trim();
+        if (!trimmed) return arr;
+        if (trimmed[0] === "[") {
+            try {
+                var parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) return parseHeroIdInput(parsed);
+            } catch (e) { }
+        }
+        var parts = trimmed.split(",");
+        for (var i = 0; i < parts.length; i++) {
+            var v = Number(String(parts[i]).trim());
+            if (v > 0 && arr.indexOf(v) === -1) arr.push(v);
+        }
+        return arr;
+    }
+    if (Array.isArray(rawInput)) {
+        for (var j = 0; j < rawInput.length; j++) {
+            var item = rawInput[j];
+            var num = (item && typeof item === "object") ? Number(item.id || item.hero_id || 0) : Number(item);
+            if (num > 0 && arr.indexOf(num) === -1) arr.push(num);
+        }
+    }
+    return arr;
+}
+
+function getSortedOwnedHeroIds(session) {
+    var heros = (session && session.data && session.data.heros) ? session.data.heros : {};
+    var keys = Object.keys(heros).map(Number).filter(function (id) { return id > 0; });
+    if (keys.length === 0) return [10010, 10020, 10030, 10040, 10050];
+    var scored = [];
+    for (var i = 0; i < keys.length; i++) {
+        var hid = keys[i];
+        var payload = session.computeHeroPayload(hid);
+        scored.push({
+            id: hid,
+            power: computeArenaHeroPower(payload),
+            quality: Number(payload.quality || 1),
+            lv: Number(payload.lv || 1)
+        });
+    }
+    scored.sort(function (a, b) {
+        if (b.power !== a.power) return b.power - a.power;
+        if (b.quality !== a.quality) return b.quality - a.quality;
+        if (b.lv !== a.lv) return b.lv - a.lv;
+        return a.id - b.id;
+    });
+    return scored.map(function (it) { return it.id; });
+}
+
+function resolveHeroIdList(session, rawInput, maxCount, fallbackIds) {
+    maxCount = Math.max(1, Number(maxCount || 5));
+    var heros = (session && session.data && session.data.heros) ? session.data.heros : {};
+    var hasOwned = Object.keys(heros).length > 0;
+    var parsed = parseHeroIdInput(rawInput);
+    var out = [];
+    for (var i = 0; i < parsed.length; i++) {
+        var hid = parsed[i];
+        if (!hasOwned || heros[hid]) {
+            out.push(hid);
+            if (out.length >= maxCount) break;
+        }
+    }
+    if (out.length === 0) {
+        var fb = (fallbackIds && fallbackIds.length > 0) ? fallbackIds : getSortedOwnedHeroIds(session);
+        out = fb.slice(0, maxCount);
+    }
+    return out;
+}
+
+function resolveMultiTeamLineups(session, savedTeams, numTeams, teamSize) {
+    numTeams = Math.max(1, Number(numTeams || 3));
+    teamSize = Math.max(1, Number(teamSize || 5));
+    var heros = (session && session.data && session.data.heros) ? session.data.heros : {};
+    var hasOwned = Object.keys(heros).length > 0;
+
+    var teams = [];
+    var hasAnySaved = false;
+    if (Array.isArray(savedTeams)) {
+        for (var t = 0; t < numTeams; t++) {
+            var parsed = parseHeroIdInput(savedTeams[t]);
+            var filtered = [];
+            for (var i = 0; i < parsed.length; i++) {
+                if (!hasOwned || heros[parsed[i]]) {
+                    filtered.push(parsed[i]);
+                    if (filtered.length >= teamSize) break;
+                }
+            }
+            if (filtered.length > 0) hasAnySaved = true;
+            teams.push(filtered);
+        }
+    }
+    if (hasAnySaved) {
+        while (teams.length < numTeams) teams.push([]);
+        return teams;
+    }
+
+    var sorted = getSortedOwnedHeroIds(session);
+    teams = [];
+    if (sorted.length >= numTeams) {
+        var idx = 0;
+        for (var ti = 0; ti < numTeams; ti++) {
+            var remainingTeams = numTeams - ti - 1;
+            var available = sorted.length - idx;
+            var take = Math.min(teamSize, Math.max(1, available - remainingTeams));
+            teams.push(sorted.slice(idx, idx + take));
+            idx += take;
+        }
+    } else {
+        for (var tj = 0; tj < numTeams; tj++) {
+            teams.push([sorted[tj % sorted.length]]);
+        }
+    }
+    return teams;
+}
+
+function getPlayerArenaBenchmark(session) {
+    var topIds = getSortedOwnedHeroIds(session).slice(0, 5);
+    var sumLv = 0, sumQ = 0, sumStar = 0, totalPower = 0;
+    for (var i = 0; i < topIds.length; i++) {
+        var p = session.computeHeroPayload(topIds[i]);
+        sumLv += Number(p.lv || 1);
+        sumQ += Number(p.quality || 1);
+        sumStar += Number(p.star || 1);
+        totalPower += computeArenaHeroPower(p);
+    }
+    var cnt = Math.max(1, topIds.length);
+    return {
+        avgLv: Math.max(1, Math.round(sumLv / cnt)),
+        avgQuality: Math.max(1, Math.round(sumQ / cnt)),
+        avgStar: Math.max(1, Math.round(sumStar / cnt)),
+        teamSize: Math.max(1, Math.min(5, topIds.length)),
+        totalPower: totalPower
+    };
+}
+
+var BOT_ARENA_POOL = [
+    { id: 900001, name: "Itachi Uchiha", icon: 10140, server_id: 2, teams: [[10030, 10050, 10140, 10100, 10020], [10010, 10070, 10080, 10090, 10040], [10110, 10120, 10130, 10150, 10050]] },
+    { id: 900002, name: "Hokage Đệ Tứ", icon: 10010, server_id: 2, teams: [[10010, 10020, 10050, 10040, 10100], [10030, 10070, 10080, 10130, 10120], [10090, 10110, 10140, 10150, 10020]] },
+    { id: 900003, name: "Naruto Hiền Nhân", icon: 10020, server_id: 3, teams: [[10020, 10040, 10050, 10130, 10100], [10070, 10080, 10090, 10010, 10030], [10110, 10120, 10140, 10150, 10040]] },
+    { id: 900004, name: "Sasuke Taka", icon: 10030, server_id: 3, teams: [[10030, 10050, 10070, 10100, 10140], [10020, 10040, 10080, 10090, 10130], [10010, 10110, 10120, 10150, 10030]] },
+    { id: 900005, name: "Kakashi Ám Bộ", icon: 10050, server_id: 4, teams: [[10050, 10010, 10030, 10080, 10100], [10020, 10040, 10070, 10120, 10130], [10090, 10110, 10140, 10150, 10010]] },
+    { id: 900006, name: "Rock Lee Bát Môn", icon: 10070, server_id: 4, teams: [[10070, 10080, 10090, 10040, 10020], [10050, 10100, 10120, 10010, 10030], [10110, 10130, 10140, 10150, 10070]] },
+    { id: 900007, name: "Neji Bạch Nhãn", icon: 10080, server_id: 5, teams: [[10080, 10130, 10070, 10090, 10050], [10020, 10030, 10040, 10100, 10010], [10110, 10120, 10140, 10150, 10080]] },
+    { id: 900008, name: "Shikamaru Quân Sư", icon: 10100, server_id: 5, teams: [[10100, 10110, 10120, 10020, 10040], [10010, 10030, 10050, 10070, 10080], [10090, 10130, 10140, 10150, 10100]] },
+    { id: 900009, name: "Hinata Byakugan", icon: 10130, server_id: 2, teams: [[10130, 10140, 10150, 10020, 10040], [10080, 10070, 10050, 10100, 10010], [10030, 10090, 10110, 10120, 10130]] },
+    { id: 900010, name: "Sakura Bách Hào", icon: 10040, server_id: 6, teams: [[10040, 10020, 10030, 10050, 10010], [10100, 10110, 10120, 10070, 10080], [10090, 10130, 10140, 10150, 10040]] },
+    { id: 900011, name: "Choji Điệp Ảnh", icon: 10120, server_id: 6, teams: [[10120, 10100, 10110, 10070, 10040], [10020, 10050, 10080, 10090, 10130], [10010, 10030, 10140, 10150, 10120]] },
+    { id: 900012, name: "Kiba Nha Thông Nha", icon: 10140, server_id: 3, teams: [[10140, 10130, 10150, 10070, 10030], [10020, 10040, 10050, 10080, 10100], [10010, 10090, 10110, 10120, 10140]] },
+    { id: 900013, name: "Shino Khống Trùng", icon: 10150, server_id: 4, teams: [[10150, 10130, 10140, 10100, 10050], [10010, 10020, 10030, 10040, 10070], [10080, 10090, 10110, 10120, 10150]] },
+    { id: 900014, name: "Tenten Nhẫn Cụ", icon: 10090, server_id: 5, teams: [[10090, 10070, 10080, 10050, 10020], [10030, 10040, 10100, 10120, 10130], [10010, 10110, 10140, 10150, 10090]] },
+    { id: 900015, name: "Ino Tâm Chuyển", icon: 10110, server_id: 6, teams: [[10110, 10100, 10120, 10040, 10050], [10020, 10030, 10070, 10080, 10090], [10010, 10130, 10140, 10150, 10110]] }
+];
+
+var _cachedMatchups = {};
+var _matchRotationCursor = {};
+
+function sanitizeHeroIds(idList, maxLen) {
+    var out = [];
+    for (var i = 0; i < idList.length; i++) {
+        var hid = Number(idList[i]);
+        if (typeof Config !== "undefined" && Config.hero && !Config.hero[hid]) continue;
+        if (out.indexOf(hid) === -1) out.push(hid);
+        if (out.length >= maxLen) break;
+    }
+    var fallback = [10010, 10020, 10030, 10040, 10050];
+    for (var j = 0; out.length < maxLen && j < fallback.length; j++) {
+        if (out.indexOf(fallback[j]) === -1) out.push(fallback[j]);
+    }
+    return out;
+}
+
+function buildOpponentMatchups(session, modeKey, myRank, teamNum, opts) {
+    opts = opts || {};
+    teamNum = Math.max(1, Number(teamNum || 1));
+    var count = Number(opts.count || 3);
+    var rotate = !!opts.rotate;
+    var uid = session.getNumericId();
+    var cacheKey = uid + "_" + modeKey;
+
+    if (!rotate && _cachedMatchups[cacheKey] && _cachedMatchups[cacheKey].length >= count) {
+        return _cachedMatchups[cacheKey];
+    }
+
+    var prevIds = [];
+    if (_cachedMatchups[cacheKey]) {
+        for (var pi = 0; pi < _cachedMatchups[cacheKey].length; pi++) {
+            prevIds.push(Number(_cachedMatchups[cacheKey][pi].fighter_id || _cachedMatchups[cacheKey][pi].player_id));
+        }
+    }
+
+    var bench = getPlayerArenaBenchmark(session);
+    var myLv = Math.max(1, Number(session.data.team_lv || bench.avgLv || 1));
+    var oppTeamSize = Math.max(1, Math.min(5, bench.teamSize));
+    var results = [];
+    var usedIds = {};
+
+    // Include eligible real players from playerDb whose level is near the challenger
+    if (opts.includePlayers !== false && typeof playerDb !== "undefined" && playerDb) {
+        var realCandidates = [];
+        for (var key in playerDb) {
+            var pd = playerDb[key];
+            if (!pd || Number(pd.uid) === uid || !pd.heros) continue;
+            var hKeys = Object.keys(pd.heros).map(Number).filter(function (id) { return id > 0; });
+            if (hKeys.length === 0) continue;
+            var pLv = Math.max(1, Number(pd.team_lv || 1));
+            if (Math.abs(pLv - myLv) > 15) continue;
+            realCandidates.push({ pd: pd, hKeys: hKeys, pLv: pLv });
+        }
+        if (realCandidates.length > 0) {
+            var rCur = Number(_matchRotationCursor[cacheKey + "_real"] || 0);
+            for (var rc = 0; rc < realCandidates.length && results.length < Math.min(1, count); rc++) {
+                var cand = realCandidates[(rCur + rc) % realCandidates.length];
+                var rPid = Number(cand.pd.uid);
+                if (prevIds.indexOf(rPid) !== -1 && realCandidates.length > 1) continue;
+                var rTeams = [];
+                var savedDefStr = (cand.pd.arena_def_lineup && cand.pd.arena_def_lineup.length > 0)
+                    ? cand.pd.arena_def_lineup
+                    : cand.hKeys;
+                for (var rt = 0; rt < teamNum; rt++) {
+                    var rawSlice = (rt === 0) ? savedDefStr : cand.hKeys.slice((rt * oppTeamSize) % cand.hKeys.length);
+                    if (rawSlice.length === 0) rawSlice = cand.hKeys;
+                    var teamObjs = [];
+                    for (var hi = 0; hi < Math.min(oppTeamSize, rawSlice.length); hi++) {
+                        teamObjs.push(computeOtherPlayerHeroPayload(session, cand.pd, rawSlice[hi]));
+                    }
+                    rTeams.push(teamObjs);
+                }
+                var rIcon = Number(cand.pd.icon || 10020);
+                if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[rIcon]) rIcon = 10020;
+                var rankPos = (Number(myRank || 5) > 3) ? Math.max(1, Number(myRank) - (3 - results.length)) : (results.length + 2);
+                results.push({
+                    rank: rankPos,
+                    fighter_id: rPid,
+                    player_id: rPid,
+                    server_id: Number(cand.pd.server_id || 1),
+                    player_name: cand.pd.team_name || ("Nhẫn Giả #" + rPid),
+                    player_lv: cand.pLv,
+                    icon: rIcon,
+                    fight_value: calcArenaTeamPower(rTeams[0]),
+                    win_count: Number(cand.pd.arena_win_count || 0),
+                    team_num: teamNum,
+                    teams: rTeams,
+                    def_heros: rTeams[0]
+                });
+                usedIds[rPid] = true;
+            }
+            _matchRotationCursor[cacheKey + "_real"] = (rCur + 1) % realCandidates.length;
+        }
+    }
+
+    // Fill remaining opponent slots from BOT_ARENA_POOL scaled to player benchmark
+    var botCur = Number(_matchRotationCursor[cacheKey + "_bot"] || 0);
+    var botIndices = [];
+    for (var bi = 0; bi < BOT_ARENA_POOL.length; bi++) {
+        botIndices.push((botCur + bi) % BOT_ARENA_POOL.length);
+    }
+
+    // Prefer bots not shown on the previous refresh
+    var orderedBots = [];
+    for (var pass = 0; pass < 2; pass++) {
+        for (var oi = 0; oi < botIndices.length; oi++) {
+            var b = BOT_ARENA_POOL[botIndices[oi]];
+            var wasPrev = prevIds.indexOf(b.id) !== -1;
+            if ((pass === 0 && !wasPrev) || (pass === 1 && wasPrev)) {
+                if (orderedBots.indexOf(b) === -1) orderedBots.push(b);
+            }
+        }
+    }
+
+    var slotIdx = 0;
+    for (var k = 0; k < orderedBots.length && results.length < count; k++) {
+        var bot = orderedBots[k];
+        if (usedIds[bot.id]) continue;
+        usedIds[bot.id] = true;
+
+        var slotPos = results.length; // 0 = hardest, 1 = equal, 2 = easier
+        var targetLv = bench.avgLv;
+        var targetQ = bench.avgQuality;
+        var targetStar = bench.avgStar;
+        if (slotPos === 0) {
+            targetLv = Math.min(100, bench.avgLv + 2);
+        } else if (slotPos >= 2) {
+            targetLv = Math.max(1, Math.round(bench.avgLv * 0.9));
+            targetQ = Math.max(1, bench.avgQuality - 1);
+            targetStar = Math.max(1, bench.avgStar - (bench.avgStar > 1 ? 1 : 0));
+        }
+
+        var bTeams = [];
+        for (var tm = 0; tm < teamNum; tm++) {
+            var templateIds = sanitizeHeroIds(bot.teams[tm % bot.teams.length], oppTeamSize);
+            var hObjs = [];
+            for (var th = 0; th < templateIds.length; th++) {
+                hObjs.push(generateCompetentHeroRecord(templateIds[th], targetLv, targetQ, targetStar));
+            }
+            bTeams.push(hObjs);
+        }
+
+        var bIcon = Number(bot.icon || 10020);
+        if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[bIcon]) bIcon = 10020;
+        var bRank = (Number(myRank || 5) > 3) ? Math.max(1, Number(myRank) - (3 - results.length)) : (results.length + 2);
+        results.push({
+            rank: bRank,
+            fighter_id: bot.id,
+            player_id: bot.id,
+            server_id: opts.isCross ? bot.server_id : 1,
+            player_name: bot.name,
+            player_lv: Math.max(1, Math.min(100, targetLv + (slotPos === 0 ? 1 : 0))),
+            icon: bIcon,
+            fight_value: calcArenaTeamPower(bTeams[0]),
+            win_count: Math.max(1, 15 - slotPos * 4),
+            team_num: teamNum,
+            teams: bTeams,
+            def_heros: bTeams[0]
+        });
+        slotIdx++;
+    }
+    _matchRotationCursor[cacheKey + "_bot"] = (botCur + Math.max(3, slotIdx)) % BOT_ARENA_POOL.length;
+    _cachedMatchups[cacheKey] = results;
+    return results;
+}
+
+function findCachedOpponent(session, modeKey, targetId) {
+    targetId = Number(targetId);
+    var uid = session.getNumericId();
+    var cacheKey = uid + "_" + modeKey;
+    var list = _cachedMatchups[cacheKey] || [];
+    for (var i = 0; i < list.length; i++) {
+        if (Number(list[i].fighter_id) === targetId || Number(list[i].player_id) === targetId) {
+            return list[i];
+        }
+    }
+    return list[0] || null;
+}
+
+function buildArenaPlayerRankPayload(session, myRank, opts) {
+    opts = opts || {};
+    var myName = session.data.team_name || "Nhẫn Giả";
+    var myLv = Number(session.data.team_lv || 1);
+    var myIcon = Number(session.data.icon || 10020);
+    if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[myIcon]) myIcon = 10020;
+    var uid = session.getNumericId();
+    return {
+        rank: Number(myRank || 1),
+        icon: myIcon,
+        win_count: Number(opts.winCount || 0),
+        player_lv: myLv,
+        player_name: myName,
+        player_id: uid,
+        fighter_id: uid,
+        server_id: 1,
+        fight_value: Number(opts.fightValue || 0)
     };
 }
 
@@ -1015,6 +1474,7 @@ const ArenaAndTowerHandler = {
 
         // 3. Đấu Trường Giới Hạn (LimitedArena*)
         if (cmd === "LimitedArenaInfo" || cmd === "LimitedArenaLineup" || cmd === "LimitedArenaClearCD" || cmd === "LimitedArenaBuyFights") {
+            var todayKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
             var allowedHeroIds = [];
             var heroesList = [];
             for (var hid in this.data.heros) {
@@ -1046,103 +1506,187 @@ const ArenaAndTowerHandler = {
                     });
                 }
             }
-            if (!this.data.lim_arena_def || this.data.lim_arena_def.length === 0) {
-                this.data.lim_arena_def = [];
-                for (var hk in this.data.heros) {
-                    this.data.lim_arena_def.push(this.computeHeroPayload(hk));
-                    if (this.data.lim_arena_def.length >= 5) break;
-                }
+
+            var defaultTopIds = getSortedOwnedHeroIds(this).slice(0, 5);
+            if (!Array.isArray(this.data.lim_arena_def_ids) || this.data.lim_arena_def_ids.length === 0) {
+                var parsedOldDef = parseHeroIdInput(this.data.lim_arena_def);
+                this.data.lim_arena_def_ids = parsedOldDef.length > 0 ? parsedOldDef.slice(0, 5) : defaultTopIds.slice(0);
             }
-            if (!this.data.lim_arena_atk || this.data.lim_arena_atk.length === 0) {
-                this.data.lim_arena_atk = this.data.lim_arena_def.slice(0);
+            if (!Array.isArray(this.data.lim_arena_atk_ids) || this.data.lim_arena_atk_ids.length === 0) {
+                var parsedOldAtk = parseHeroIdInput(this.data.lim_arena_atk);
+                this.data.lim_arena_atk_ids = parsedOldAtk.length > 0 ? parsedOldAtk.slice(0, 5) : this.data.lim_arena_def_ids.slice(0);
             }
+
+            var stateChanged = false;
             if (cmd === "LimitedArenaLineup" && params && params.length >= 2) {
                 var side = String(params[0]);
-                var idArr = String(params[1]).split(",");
-                var newTeam = [];
-                for (var ti = 0; ti < idArr.length; ti++) {
-                    var thid = Number(idArr[ti]);
-                    if (thid > 0 && this.data.heros[thid]) {
-                        newTeam.push(this.computeHeroPayload(thid));
-                    }
+                var rawIds = parseHeroIdInput(params[1]).filter(function (id) {
+                    return !!self.data.heros[id] || (typeof Config !== "undefined" && Config.hero && !!Config.hero[id]);
+                }).slice(0, 5);
+                if (rawIds.length > 0) {
+                    if (side === "defense") this.data.lim_arena_def_ids = rawIds;
+                    else this.data.lim_arena_atk_ids = rawIds;
+                    stateChanged = true;
                 }
-                if (side === "defense") this.data.lim_arena_def = newTeam;
-                else this.data.lim_arena_atk = newTeam;
             }
-            var botDef = [this.createDefaultHeroRecord(10020), this.createDefaultHeroRecord(10040), this.createDefaultHeroRecord(10070)];
-            var opponents = [
-                { rank: 1, fighter_id: -1, player_id: -1, player_name: "Lính Canh #1", player_lv: 20, icon: 10010, fight_value: 2500, win_count: 0, def_heros: botDef },
-                { rank: 2, fighter_id: -2, player_id: -2, player_name: "Lính Canh #2", player_lv: 22, icon: 10020, fight_value: 3000, win_count: 0, def_heros: botDef },
-                { rank: 3, fighter_id: -3, player_id: -3, player_name: "Lính Canh #3", player_lv: 25, icon: 10030, fight_value: 3500, win_count: 0, def_heros: botDef }
-            ];
+
+            var nowSec = Math.floor(Date.now() / 1000);
+            var lastFightSec = Number(this.data.lim_arena_last_fight_time || 0);
+            var cooldownSec = lastFightSec > 0 ? Math.max(0, 600 - (nowSec - lastFightSec)) : 0;
+            var buyCount = Number(this.data.lim_arena_buy_count || 0);
+            var buyLimit = 15;
+            var clearCost = 50;
+            var buyPrice = 50;
+
+            if (cmd === "LimitedArenaClearCD") {
+                if (cooldownSec > 0) {
+                    if (!this.canDeductStone(clearCost)) {
+                        return respond({}, { code: 1, msg: "Không đủ Kim Cương để xóa hồi chiêu!" }), true;
+                    }
+                    this.deductStone(clearCost, queuePush);
+                    this.data.lim_arena_last_fight_time = 0;
+                    lastFightSec = 0;
+                    cooldownSec = 0;
+                    stateChanged = true;
+                }
+            } else if (cmd === "LimitedArenaBuyFights") {
+                if (buyCount >= buyLimit) {
+                    return respond({}, { code: 1, msg: "Đã đạt giới hạn mua lượt hôm nay!" }), true;
+                }
+                if (!this.canDeductStone(buyPrice)) {
+                    return respond({}, { code: 1, msg: "Không đủ Kim Cương để mua lượt!" }), true;
+                }
+                this.deductStone(buyPrice, queuePush);
+                buyCount += 1;
+                this.data.lim_arena_buy_count = buyCount;
+                stateChanged = true;
+            }
+
+            var bench = getPlayerArenaBenchmark(this);
+            var buildLimTeam = function (idArr) {
+                var arr = [];
+                for (var idx = 0; idx < idArr.length; idx++) {
+                    var tid = Number(idArr[idx]);
+                    if (self.data.heros[tid]) arr.push(self.computeHeroPayload(tid));
+                    else arr.push(generateCompetentHeroRecord(tid, bench.avgLv, bench.avgQuality, bench.avgStar));
+                }
+                return arr;
+            };
+            this.data.lim_arena_def = buildLimTeam(this.data.lim_arena_def_ids);
+            this.data.lim_arena_atk = buildLimTeam(this.data.lim_arena_atk_ids);
+            if (stateChanged) this.save();
+
+            var limRank = Number(this.data.lim_arena_rank || 5);
+            var opponents = buildOpponentMatchups(this, "lim_arena", limRank, 1, { rotate: false });
+            var dailyFights = 5 + buyCount * 5;
+            var fightCount = Number(this.data.lim_arena_fight_count || 0);
+
             respond({
-                day: "2026-11-03",
-                periodKey: "2026-11-03",
+                day: todayKey,
+                periodKey: todayKey,
                 resetMode: "daily",
                 revision: 1,
                 heroIds: allowedHeroIds,
                 heroes: heroesList,
-                rank: Number(this.data.lim_arena_rank || 5),
-                winCount: Number(this.data.lim_arena_wins || 3),
-                fightCount: 0,
-                dailyFights: 5,
+                rank: limRank,
+                winCount: Number(this.data.lim_arena_wins || 0),
+                fightCount: fightCount,
+                dailyFights: dailyFights,
                 baseDailyFights: 5,
-                buyCount: 0,
-                buyLimit: 15,
-                buyPrice: 50,
+                buyCount: buyCount,
+                buyLimit: buyLimit,
+                buyPrice: buyPrice,
                 buyFights: 5,
-                buyAvailable: true,
-                clearCooldownCost: 50,
-                cooldown: 0,
-                lastFightTime: 0,
+                buyAvailable: buyCount < buyLimit,
+                clearCooldownCost: clearCost,
+                cooldown: cooldownSec,
+                lastFightTime: lastFightSec,
                 appleRewardAt: "00:00 UTC+7",
                 appleRewardRule: "Đấu tối thiểu 3 trận/ngày nhận Táo qua Thư lúc 00:00 UTC+7",
                 exchangeHint: "Sự kiện Đổi Thưởng: 100 Táo = 1 Key Vàng",
                 attack: this.data.lim_arena_atk,
                 defense: this.data.lim_arena_def,
-                attackPower: 15000,
-                defensePower: 15000,
+                attackPower: calcArenaTeamPower(this.data.lim_arena_atk),
+                defensePower: calcArenaTeamPower(this.data.lim_arena_def),
                 opponents: opponents,
-                history: []
+                history: Array.isArray(this.data.lim_arena_history) ? this.data.lim_arena_history : []
             });
             return true;
         }
 
         if (cmd === "LimitedArenaOpponents") {
-            var botDef = [this.createDefaultHeroRecord(10020), this.createDefaultHeroRecord(10040), this.createDefaultHeroRecord(10070)];
+            var todayOppKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
+            var oppRank = Number(this.data.lim_arena_rank || 5);
+            var rotatedOpponents = buildOpponentMatchups(this, "lim_arena", oppRank, 1, { rotate: true });
             respond({
-                day: "2026-11-03",
+                day: todayOppKey,
                 revision: 1,
-                fighters: [
-                    { rank: 1, fighter_id: -1, player_id: -1, player_name: "Lính Canh #1", player_lv: 20, icon: 10010, fight_value: 2500, win_count: 0, def_heros: botDef },
-                    { rank: 2, fighter_id: -2, player_id: -2, player_name: "Lính Canh #2", player_lv: 22, icon: 10020, fight_value: 3000, win_count: 0, def_heros: botDef },
-                    { rank: 3, fighter_id: -3, player_id: -3, player_name: "Lính Canh #3", player_lv: 25, icon: 10030, fight_value: 3500, win_count: 0, def_heros: botDef }
-                ]
+                fighters: rotatedOpponents
             });
             return true;
         }
 
         if (cmd === "LimitedArenaFight") {
-            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
-            var atkHeros = myHeroIds.slice(0, 5).map(function (hid) { return self.computeHeroPayload(hid); });
-            var defHeros = [
-                generateCompetentHeroRecord(10020, 80, 10, 4),
-                generateCompetentHeroRecord(10040, 80, 10, 4),
-                generateCompetentHeroRecord(10070, 80, 10, 4)
-            ];
+            resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
+            var savedAtkIds = (Array.isArray(this.data.lim_arena_atk_ids) && this.data.lim_arena_atk_ids.length > 0)
+                ? this.data.lim_arena_atk_ids
+                : parseHeroIdInput(this.data.lim_arena_atk);
+            if (savedAtkIds.length === 0) {
+                savedAtkIds = getSortedOwnedHeroIds(this).slice(0, 5);
+            }
+            var limBench = getPlayerArenaBenchmark(this);
+            var atkHeros = savedAtkIds.slice(0, 5).map(function (hid) {
+                return self.data.heros[hid]
+                    ? self.computeHeroPayload(hid)
+                    : generateCompetentHeroRecord(hid, limBench.avgLv, limBench.avgQuality, limBench.avgStar);
+            });
+
+            var limTargetId = (params && params[0] !== undefined) ? Number(params[0]) : 0;
+            var cachedOpp = findCachedOpponent(this, "lim_arena", limTargetId);
+            if (!cachedOpp) {
+                var freshOpps = buildOpponentMatchups(this, "lim_arena", Number(this.data.lim_arena_rank || 5), 1, { rotate: false });
+                cachedOpp = freshOpps[0];
+            }
+            var defHeros = (cachedOpp && cachedOpp.def_heros && cachedOpp.def_heros.length > 0)
+                ? cachedOpp.def_heros
+                : [generateCompetentHeroRecord(10020, limBench.avgLv, limBench.avgQuality, limBench.avgStar)];
+
             var limSeed = Math.floor(Math.random() * 900000) + 100000;
             var sim = simulateArenaBattle(atkHeros, defHeros, limSeed);
             var isWin = sim.isWin ? 1 : 0;
+            var nowFightSec = Math.floor(Date.now() / 1000);
+            this.data.lim_arena_fight_count = Number(this.data.lim_arena_fight_count || 0) + 1;
+            this.data.lim_arena_last_fight_time = nowFightSec;
+
+            var oldLimRank = Number(this.data.lim_arena_rank || 5);
             if (isWin === 1) {
-                this.data.lim_arena_rank = 1;
+                if (cachedOpp && Number(cachedOpp.rank || 0) > 0 && Number(cachedOpp.rank) < oldLimRank) {
+                    this.data.lim_arena_rank = Number(cachedOpp.rank);
+                } else {
+                    this.data.lim_arena_rank = Math.max(1, oldLimRank - 1);
+                }
                 this.data.lim_arena_wins = Number(this.data.lim_arena_wins || 0) + 1;
                 this.changeItemAmount(10150, 50, queuePush);
             }
+
+            if (!Array.isArray(this.data.lim_arena_history)) this.data.lim_arena_history = [];
+            this.data.lim_arena_history.unshift({
+                time: nowFightSec,
+                is_win: isWin,
+                target_name: cachedOpp ? cachedOpp.player_name : "Đối Thủ",
+                fighter_id: cachedOpp ? cachedOpp.fighter_id : limTargetId,
+                rank_change: isWin ? Math.max(0, oldLimRank - Number(this.data.lim_arena_rank || 1)) : 0
+            });
+            if (this.data.lim_arena_history.length > 20) {
+                this.data.lim_arena_history.length = 20;
+            }
+
             this.save();
             respond({
                 isWin: isWin,
                 newRank: Number(this.data.lim_arena_rank || 1),
+                fightCount: Number(this.data.lim_arena_fight_count || 0),
+                lastFightTime: nowFightSec,
                 seed: limSeed,
                 reward: isWin === 1 ? { items: [{ type: 1, item_id: 10150, amount: 50 }] } : {},
                 fight_data: JSON.stringify(sim.replay)
@@ -1151,207 +1695,199 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "LimitedArenaRank" || cmd === "LimitedArenaHistory") {
-            var botDef = [this.createDefaultHeroRecord(10020), this.createDefaultHeroRecord(10040), this.createDefaultHeroRecord(10070)];
+            var todayRankKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
+            var defIds = (Array.isArray(this.data.lim_arena_def_ids) && this.data.lim_arena_def_ids.length > 0)
+                ? this.data.lim_arena_def_ids
+                : getSortedOwnedHeroIds(this).slice(0, 5);
+            var myDefPayloads = defIds.map(function (hid) {
+                return self.data.heros[hid] ? self.computeHeroPayload(hid) : generateCompetentHeroRecord(hid, 20, 1, 1);
+            });
+            var myRankNum = Number(this.data.lim_arena_rank || 5);
+            var peerOpps = buildOpponentMatchups(this, "lim_arena", myRankNum, 1, { rotate: false });
+            var myEntry = Object.assign(buildArenaPlayerRankPayload(this, myRankNum, {
+                winCount: Number(this.data.lim_arena_wins || 0),
+                fightValue: calcArenaTeamPower(myDefPayloads)
+            }), { def_heros: myDefPayloads });
+            var rankList = peerOpps.concat([myEntry]).sort(function (a, b) {
+                return Number(a.rank || 999) - Number(b.rank || 999);
+            });
             respond({
-                day: "2026-11-03",
+                day: todayRankKey,
                 revision: 1,
-                ranks: [
-                    { rank: 1, fighter_id: this.getNumericId(), player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", player_lv: Number(this.data.team_lv || 1), icon: Number(this.data.icon || 80110070), fight_value: 15000, win_count: 5, def_heros: botDef }
-                ],
-                history: []
+                ranks: rankList,
+                history: Array.isArray(this.data.lim_arena_history) ? this.data.lim_arena_history : []
             });
             return true;
         }
 
         // 4. Đấu Trường & Lôi Đài Ám Bộ (ArenaInfo, DarkArenaInfo, MatchFighters, ArenaFight, etc.)
         if (cmd === SVRCMD.ArenaInfo) {
-            var myHerosArr = [];
-            for (var hid in this.data.heros) {
-                myHerosArr.push(this.computeHeroPayload(hid));
-                if (myHerosArr.length >= 5) break;
-            }
+            resetDailyArenaCountersIfNeeded(this.data, "arena");
+            var defaultTop = getSortedOwnedHeroIds(this).slice(0, 5);
+            var defIds = resolveHeroIdList(this, this.data.arena_def_lineup || this.data.arena_lineup, 5, defaultTop);
+            var atkIds = resolveHeroIdList(this, this.data.arena_atk_lineup || this.data.arena_lineup, 5, defIds);
+            this.data.arena_def_lineup = defIds.join(",");
+            this.data.arena_atk_lineup = atkIds.join(",");
+
+            var defHerosArr = defIds.map(function (hid) { return self.computeHeroPayload(hid); });
+            var atkHerosArr = atkIds.map(function (hid) { return self.computeHeroPayload(hid); });
+            var arenaRankNum = Number(this.data.arena_rank || 10);
+            var rankBase = buildArenaPlayerRankPayload(this, arenaRankNum, {
+                winCount: Number(this.data.arena_win_count || 0),
+                fightValue: calcArenaTeamPower(defHerosArr)
+            });
+            rankBase.atk_heros = JSON.stringify(atkHerosArr);
+            rankBase.def_heros = JSON.stringify(defHerosArr);
+
             respond({
-                rank: {
-                    rank: Number(this.data.arena_rank || 10),
-                    icon: Number(this.data.icon || 80110070),
-                    win_count: 15,
-                    player_lv: Number(this.data.team_lv || 1),
-                    player_name: this.data.team_name || "Nhẫn Giả",
-                    player_id: this.getNumericId(),
-                    fighter_id: this.getNumericId(),
-                    fight_value: 5000,
-                    server_id: 1,
-                    atk_heros: JSON.stringify(myHerosArr),
-                    def_heros: JSON.stringify(myHerosArr)
-                },
-                lastFightTime: 0,
-                fightCount: 0,
-                buyCount: 0
+                rank: rankBase,
+                lastFightTime: Number(this.data.arena_last_fight_time || 0),
+                fightCount: Number(this.data.arena_fight_count || 0),
+                buyCount: Number(this.data.daily_counts["PLAYER_GOODS2_COUNT_ID_3001"] || 0)
             });
             return true;
         }
 
         if (cmd === SVRCMD.MatchFighters || cmd === SVRCMD.MatcDarkhFighters) {
-            var isDark = (cmd === SVRCMD.MatcDarkhFighters);
-            var myRank = Number(isDark ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
+            var isDarkMatch = (cmd === SVRCMD.MatcDarkhFighters);
+            var matchRank = Number(isDarkMatch ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
+            var modeKey = isDarkMatch ? "dark_arena" : "arena";
+            var matchups = buildOpponentMatchups(this, modeKey, matchRank, isDarkMatch ? 3 : 1, { rotate: true });
 
-            var r1, r2, r3;
-            if (myRank === 1) {
-                // Người chơi đang ở Top 1 -> hiển thị các đối thủ hạng 2, 3, 4 để khiêu chiến
-                r1 = 2;
-                r2 = 3;
-                r3 = 4;
-            } else if (myRank === 2) {
-                r1 = 1;
-                r2 = 3;
-                r3 = 4;
-            } else if (myRank === 3) {
-                r1 = 1;
-                r2 = 2;
-                r3 = 4;
-            } else {
-                r1 = Math.max(1, myRank - 15);
-                r2 = Math.max(1, myRank - 8);
-                r3 = Math.max(1, myRank - 3);
-            }
+            var formatted = matchups.map(function (m) {
+                var t1 = m.teams[0] || [];
+                var t2 = m.teams[1] || t1;
+                var t3 = m.teams[2] || t1;
+                return {
+                    rank: m.rank,
+                    icon: m.icon,
+                    win_count: m.win_count,
+                    player_lv: m.player_lv,
+                    player_name: m.player_name,
+                    player_id: m.player_id,
+                    fighter_id: m.fighter_id,
+                    fight_value: m.fight_value,
+                    server_id: m.server_id || 1,
+                    def_heros: JSON.stringify(t1),
+                    def_heros_1: JSON.stringify(t1),
+                    def_heros_2: JSON.stringify(t2),
+                    def_heros_3: JSON.stringify(t3)
+                };
+            });
 
-            var f1Heros = [
-                generateCompetentHeroRecord(10050, 85, 12, 5),
-                generateCompetentHeroRecord(10010, 85, 12, 5),
-                generateCompetentHeroRecord(10020, 85, 12, 5),
-                generateCompetentHeroRecord(10030, 85, 12, 5),
-                generateCompetentHeroRecord(10070, 85, 12, 5)
-            ];
-            var f2Heros = [
-                generateCompetentHeroRecord(10020, 82, 11, 4),
-                generateCompetentHeroRecord(10040, 82, 11, 4),
-                generateCompetentHeroRecord(10060, 82, 11, 4),
-                generateCompetentHeroRecord(10080, 82, 11, 4),
-                generateCompetentHeroRecord(10110, 82, 11, 4)
-            ];
-            var f3Heros = [
-                generateCompetentHeroRecord(10030, 80, 10, 4),
-                generateCompetentHeroRecord(10040, 80, 10, 4),
-                generateCompetentHeroRecord(10070, 80, 10, 4),
-                generateCompetentHeroRecord(10120, 80, 10, 4),
-                generateCompetentHeroRecord(10140, 80, 10, 4)
-            ];
-
-            var defStr1 = JSON.stringify(f1Heros);
-            var defStr2 = JSON.stringify(f2Heros);
-            var defStr3 = JSON.stringify(f3Heros);
-
-            var f1 = { rank: r1, icon: 30610460, win_count: 50, player_lv: 85, player_name: "Kakashi Hatake", player_id: 101, fighter_id: 101, fight_value: 696039, server_id: 1, def_heros: defStr1, def_heros_1: defStr1, def_heros_2: defStr1, def_heros_3: defStr1 };
-            var f2 = { rank: r2, icon: 80110020, win_count: 30, player_lv: 82, player_name: "Naruto Uzumaki", player_id: 102, fighter_id: 102, fight_value: 580000, server_id: 1, def_heros: defStr2, def_heros_1: defStr2, def_heros_2: defStr2, def_heros_3: defStr2 };
-            var f3 = { rank: r3, icon: 80110040, win_count: 10, player_lv: 80, player_name: "Sakura Haruno", player_id: 103, fighter_id: 103, fight_value: 450000, server_id: 1, def_heros: defStr3, def_heros_1: defStr3, def_heros_2: defStr3, def_heros_3: defStr3 };
-
-            if (isDark) {
-                respond([f1, f2, f3]);
+            if (isDarkMatch) {
+                respond(formatted);
             } else {
                 var respObj = {};
-                respObj[String(r1)] = f1;
-                respObj[String(r2)] = f2;
-                respObj[String(r3)] = f3;
+                for (var fi = 0; fi < formatted.length; fi++) {
+                    respObj[String(formatted[fi].rank)] = formatted[fi];
+                }
                 respond(respObj);
             }
             return true;
         }
 
         if (cmd === SVRCMD.PlayerArenaInfo || cmd === SVRCMD.PlayerDarkArenaInfo) {
-            var fId = Number((params && params[0]) || 101);
-            var defArr1, defArr2, defArr3;
-            var pLv = 80;
-            var pName = "Thủ Vệ " + fId;
-            var pIcon = 30610460;
-            var fVal = 500000;
-
-            if (fId === 101) {
-                pLv = 85;
-                pName = "Kakashi Hatake";
-                pIcon = 30610460;
-                fVal = 696039;
-                defArr1 = [
-                    generateCompetentHeroRecord(10050, 85, 12, 5),
-                    generateCompetentHeroRecord(10010, 85, 12, 5),
-                    generateCompetentHeroRecord(10020, 85, 12, 5),
-                    generateCompetentHeroRecord(10030, 85, 12, 5),
-                    generateCompetentHeroRecord(10070, 85, 12, 5)
-                ];
-            } else if (fId === 102) {
-                pLv = 82;
-                pName = "Naruto Uzumaki";
-                pIcon = 80110020;
-                fVal = 580000;
-                defArr1 = [
-                    generateCompetentHeroRecord(10020, 82, 11, 4),
-                    generateCompetentHeroRecord(10040, 82, 11, 4),
-                    generateCompetentHeroRecord(10060, 82, 11, 4),
-                    generateCompetentHeroRecord(10080, 82, 11, 4),
-                    generateCompetentHeroRecord(10110, 82, 11, 4)
-                ];
-            } else if (fId === 103) {
-                pLv = 80;
-                pName = "Sakura Haruno";
-                pIcon = 80110040;
-                fVal = 450000;
-                defArr1 = [
-                    generateCompetentHeroRecord(10030, 80, 10, 4),
-                    generateCompetentHeroRecord(10040, 80, 10, 4),
-                    generateCompetentHeroRecord(10070, 80, 10, 4),
-                    generateCompetentHeroRecord(10120, 80, 10, 4),
-                    generateCompetentHeroRecord(10140, 80, 10, 4)
-                ];
-            } else {
-                defArr1 = [
-                    generateCompetentHeroRecord(10020, 80, 10, 4),
-                    generateCompetentHeroRecord(10040, 80, 10, 4),
-                    generateCompetentHeroRecord(10070, 80, 10, 4),
-                    generateCompetentHeroRecord(10010, 80, 10, 4),
-                    generateCompetentHeroRecord(10030, 80, 10, 4)
-                ];
+            var isDarkInspect = (cmd === SVRCMD.PlayerDarkArenaInfo);
+            var inspectMode = isDarkInspect ? "dark_arena" : "arena";
+            var fId = Number((params && params[0]) || 0);
+            var targetOpp = findCachedOpponent(this, inspectMode, fId);
+            if (!targetOpp) {
+                var genOpps = buildOpponentMatchups(
+                    this,
+                    inspectMode,
+                    Number(isDarkInspect ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50)),
+                    isDarkInspect ? 3 : 1,
+                    { rotate: false }
+                );
+                targetOpp = findCachedOpponent(this, inspectMode, fId) || genOpps[0];
             }
-            defArr2 = [
-                generateCompetentHeroRecord(10110, pLv, 10, 4),
-                generateCompetentHeroRecord(10120, pLv, 10, 4),
-                generateCompetentHeroRecord(10140, pLv, 10, 4),
-                generateCompetentHeroRecord(10150, pLv, 10, 4),
-                generateCompetentHeroRecord(10160, pLv, 10, 4)
-            ];
-            defArr3 = [
-                generateCompetentHeroRecord(10280, pLv, 10, 4),
-                generateCompetentHeroRecord(10290, pLv, 10, 4),
-                generateCompetentHeroRecord(10310, pLv, 10, 4),
-                generateCompetentHeroRecord(10320, pLv, 10, 4),
-                generateCompetentHeroRecord(10330, pLv, 10, 4)
-            ];
+            var tArr1 = (targetOpp && targetOpp.teams && targetOpp.teams[0]) ? targetOpp.teams[0] : [];
+            var tArr2 = (targetOpp && targetOpp.teams && targetOpp.teams[1]) ? targetOpp.teams[1] : tArr1;
+            var tArr3 = (targetOpp && targetOpp.teams && targetOpp.teams[2]) ? targetOpp.teams[2] : tArr1;
 
             respond({
-                player_id: fId,
-                fighter_id: fId,
-                server_id: 1,
-                team_num: 3,
-                win_count: 25,
-                rank: 15,
-                player_name: pName,
-                player_lv: pLv,
-                icon: pIcon,
-                fight_value: fVal,
-                def_heros: JSON.stringify(defArr1),
-                def_heros_1: JSON.stringify(defArr1),
-                def_heros_2: JSON.stringify(defArr2),
-                def_heros_3: JSON.stringify(defArr3)
+                player_id: targetOpp ? targetOpp.player_id : fId,
+                fighter_id: targetOpp ? targetOpp.fighter_id : fId,
+                server_id: (targetOpp && targetOpp.server_id) || 1,
+                team_num: isDarkInspect ? 3 : 1,
+                win_count: (targetOpp && targetOpp.win_count) || 0,
+                rank: (targetOpp && targetOpp.rank) || 15,
+                player_name: (targetOpp && targetOpp.player_name) || ("Thủ Vệ " + fId),
+                player_lv: (targetOpp && targetOpp.player_lv) || Number(this.data.team_lv || 20),
+                icon: (targetOpp && targetOpp.icon) || 10020,
+                fight_value: (targetOpp && targetOpp.fight_value) || calcArenaTeamPower(tArr1),
+                def_heros: JSON.stringify(tArr1),
+                def_heros_1: JSON.stringify(tArr1),
+                def_heros_2: JSON.stringify(tArr2),
+                def_heros_3: JSON.stringify(tArr3)
             });
             return true;
         }
 
         if (cmd === SVRCMD.SetArenaLineup || cmd === SVRCMD.SetDarkArenaLineup || cmd === SVRCMD.ClearArenaFightCD || cmd === SVRCMD.ClearDarkArenaFightCD || cmd === SVRCMD.BuyArenaFightNum || cmd === SVRCMD.BuyDarkArenaFightNum) {
             if (cmd === SVRCMD.SetArenaLineup) {
-                if (params && params[1]) this.data.arena_lineup = String(params[1]);
+                var aTeamType = (params && params[0] !== undefined) ? Number(params[0]) : 1;
+                var aIds = resolveHeroIdList(this, params ? params[1] : "", 5);
+                var aStr = aIds.join(",");
+                if (aTeamType === 2) {
+                    this.data.arena_def_lineup = aStr;
+                } else {
+                    this.data.arena_atk_lineup = aStr;
+                }
+                this.data.arena_lineup = aStr;
                 this.save();
             } else if (cmd === SVRCMD.SetDarkArenaLineup) {
-                if (params && params[1]) this.data.dark_arena_lineup_1 = String(params[1]);
-                if (params && params[2]) this.data.dark_arena_lineup_2 = String(params[2]);
-                if (params && params[3]) this.data.dark_arena_lineup_3 = String(params[3]);
+                var dTeamType = (params && params[0] !== undefined) ? Number(params[0]) : 2;
+                var ownMap = this.data.heros || {};
+                var cleanTeamStr = function (raw) {
+                    return parseHeroIdInput(raw).filter(function (id) { return !!ownMap[id]; }).slice(0, 5).join(",");
+                };
+                var ds1 = (params && params.length >= 2) ? cleanTeamStr(params[1]) : "";
+                var ds2 = (params && params.length >= 3) ? cleanTeamStr(params[2]) : "";
+                var ds3 = (params && params.length >= 4) ? cleanTeamStr(params[3]) : "";
+                if (dTeamType === 1) {
+                    this.data.dark_arena_atk_1 = ds1;
+                    this.data.dark_arena_atk_2 = ds2;
+                    this.data.dark_arena_atk_3 = ds3;
+                } else {
+                    this.data.dark_arena_def_1 = ds1;
+                    this.data.dark_arena_def_2 = ds2;
+                    this.data.dark_arena_def_3 = ds3;
+                    this.data.dark_arena_lineup_1 = ds1;
+                    this.data.dark_arena_lineup_2 = ds2;
+                    this.data.dark_arena_lineup_3 = ds3;
+                }
+                this.save();
+            } else if (cmd === SVRCMD.ClearArenaFightCD || cmd === SVRCMD.ClearDarkArenaFightCD) {
+                var isDarkCD = (cmd === SVRCMD.ClearDarkArenaFightCD);
+                var cdVarName = isDarkCD ? "DARK_ARENA_CD_COST_STONE" : "ARENA_CD_COST_STONE";
+                var cdCost = (typeof Config !== "undefined" && Config.global_var && Config.global_var[cdVarName])
+                    ? Number(Config.global_var[cdVarName])
+                    : 50;
+                if (cdCost > 0) {
+                    if (!this.canDeductStone(cdCost)) {
+                        return respond({}, { code: 1, msg: "Không đủ Kim Cương để xóa hồi chiêu!" }), true;
+                    }
+                    this.deductStone(cdCost, queuePush);
+                }
+                if (isDarkCD) this.data.dark_arena_last_fight_time = 0;
+                else this.data.arena_last_fight_time = 0;
+                this.save();
+            } else if (cmd === SVRCMD.BuyArenaFightNum || cmd === SVRCMD.BuyDarkArenaFightNum) {
+                var isDarkBuy = (cmd === SVRCMD.BuyDarkArenaFightNum);
+                var buyStoneCost = 50;
+                if (!this.canDeductStone(buyStoneCost)) {
+                    return respond({}, { code: 1, msg: "Không đủ Kim Cương để mua lượt!" }), true;
+                }
+                this.deductStone(buyStoneCost, queuePush);
+                if (isDarkBuy) {
+                    this.data.dark_arena_fight_count = 0;
+                    this.data.daily_counts["PLAYER_GOODS2_COUNT_ID_12001"] = Number(this.data.daily_counts["PLAYER_GOODS2_COUNT_ID_12001"] || 0) + 1;
+                } else {
+                    this.data.arena_fight_count = 0;
+                    this.data.daily_counts["PLAYER_GOODS2_COUNT_ID_3001"] = Number(this.data.daily_counts["PLAYER_GOODS2_COUNT_ID_3001"] || 0) + 1;
+                }
                 this.save();
             }
             respond({ status: 1 });
@@ -1359,99 +1895,117 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.ArenaFight || cmd === SVRCMD.DarkArenaFight) {
-            var targetFighterId = Number((params && params[0]) || 101);
+            var isDarkFight = (cmd === SVRCMD.DarkArenaFight);
+            var fightModeKey = isDarkFight ? "dark_arena" : "arena";
+            resetDailyArenaCountersIfNeeded(this.data, fightModeKey);
+
+            var targetFighterId = Number((params && params[0]) || 0);
             var reqId = (params && params[4]) ? String(params[4]) : "";
-            this.addStone(100, queuePush);
-            this.addCurrency(10, 200, queuePush);
+            var nowFightTs = Math.floor(Date.now() / 1000);
 
-            // Xác định danh sách tướng phòng thủ của đối thủ mục tiêu
-            var defHeros1 = [
-                generateCompetentHeroRecord(10050, 85, 12, 5),
-                generateCompetentHeroRecord(10010, 85, 12, 5),
-                generateCompetentHeroRecord(10020, 85, 12, 5),
-                generateCompetentHeroRecord(10030, 85, 12, 5),
-                generateCompetentHeroRecord(10070, 85, 12, 5)
-            ];
-            var defHeros2 = [
-                generateCompetentHeroRecord(10020, 82, 11, 4),
-                generateCompetentHeroRecord(10040, 82, 11, 4),
-                generateCompetentHeroRecord(10060, 82, 11, 4),
-                generateCompetentHeroRecord(10080, 82, 11, 4),
-                generateCompetentHeroRecord(10110, 82, 11, 4)
-            ];
-            var defHeros3 = [
-                generateCompetentHeroRecord(10030, 80, 10, 4),
-                generateCompetentHeroRecord(10040, 80, 10, 4),
-                generateCompetentHeroRecord(10070, 80, 10, 4),
-                generateCompetentHeroRecord(10120, 80, 10, 4),
-                generateCompetentHeroRecord(10140, 80, 10, 4)
-            ];
-            if (targetFighterId === 102) {
-                defHeros1 = defHeros2;
-            } else if (targetFighterId === 103) {
-                defHeros1 = defHeros3;
+            var oppMatch = findCachedOpponent(this, fightModeKey, targetFighterId);
+            if (!oppMatch) {
+                var fallbackOpps = buildOpponentMatchups(
+                    this,
+                    fightModeKey,
+                    Number(isDarkFight ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50)),
+                    isDarkFight ? 3 : 1,
+                    { rotate: false }
+                );
+                oppMatch = findCachedOpponent(this, fightModeKey, targetFighterId) || fallbackOpps[0];
             }
 
-            // Lấy danh sách tướng tấn công do người chơi chọn (params[2] e.g. "10020,10010,10030...")
-            var myHeroIds = [];
-            if (params && params[2] && typeof params[2] === "string") {
-                myHeroIds = params[2].split(",").map(Number).filter(function (n) { return n > 0; });
-            }
-            if (myHeroIds.length === 0) {
-                myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            }
-            if (myHeroIds.length === 0) {
-                myHeroIds = [10010, 10020, 10030, 10040, 10050];
-            }
+            var defHeros1 = (oppMatch && oppMatch.teams && oppMatch.teams[0]) ? oppMatch.teams[0] : [];
+            var defHeros2 = (oppMatch && oppMatch.teams && oppMatch.teams[1]) ? oppMatch.teams[1] : defHeros1;
+            var defHeros3 = (oppMatch && oppMatch.teams && oppMatch.teams[2]) ? oppMatch.teams[2] : defHeros1;
 
-            // Lấy thông tin thật từ tài khoản người chơi cho các hero được chọn
-            var myHeroPayloads = myHeroIds.map(function (hid) {
-                return self.computeHeroPayload(hid);
-            });
+            if (isDarkFight) {
+                var hasDarkAtk = (
+                    this.data.dark_arena_atk_1 !== undefined ||
+                    this.data.dark_arena_atk_2 !== undefined ||
+                    this.data.dark_arena_atk_3 !== undefined
+                );
+                var dTeamsIds = hasDarkAtk
+                    ? resolveMultiTeamLineups(this, [this.data.dark_arena_atk_1, this.data.dark_arena_atk_2, this.data.dark_arena_atk_3], 3, 5)
+                    : resolveMultiTeamLineups(this, [
+                        this.data.dark_arena_def_1 || this.data.dark_arena_lineup_1,
+                        this.data.dark_arena_def_2 || this.data.dark_arena_lineup_2,
+                        this.data.dark_arena_def_3 || this.data.dark_arena_lineup_3
+                    ], 3, 5);
+                var atk1 = dTeamsIds[0].map(function (hid) { return self.computeHeroPayload(hid); });
+                var atk2 = dTeamsIds[1].map(function (hid) { return self.computeHeroPayload(hid); });
+                var atk3 = dTeamsIds[2].map(function (hid) { return self.computeHeroPayload(hid); });
 
-            if (cmd === SVRCMD.DarkArenaFight) {
-                var curRank = Number(this.data.dark_arena_rank || 100);
-                var atk1 = myHeroPayloads.slice(0, 5);
-                var atk2 = myHeroPayloads.slice(5, 10).length > 0 ? myHeroPayloads.slice(5, 10) : atk1;
-                var atk3 = myHeroPayloads.slice(10, 15).length > 0 ? myHeroPayloads.slice(10, 15) : atk1;
-                var sim1 = simulateArenaBattle(atk1, defHeros1, 1001 + Math.floor(Math.random() * 10000));
-                var sim2 = simulateArenaBattle(atk2, defHeros2, 2001 + Math.floor(Math.random() * 10000));
-                var sim3 = simulateArenaBattle(atk3, defHeros3, 3001 + Math.floor(Math.random() * 10000));
+                var sim1 = atk1.length > 0 ? simulateArenaBattle(atk1, defHeros1, 1001 + Math.floor(Math.random() * 10000)) : { isWin: false, replay: "" };
+                var sim2 = atk2.length > 0 ? simulateArenaBattle(atk2, defHeros2, 2001 + Math.floor(Math.random() * 10000)) : { isWin: false, replay: "" };
+                var sim3 = atk3.length > 0 ? simulateArenaBattle(atk3, defHeros3, 3001 + Math.floor(Math.random() * 10000)) : { isWin: false, replay: "" };
                 var winCount = (sim1.isWin ? 1 : 0) + (sim2.isWin ? 1 : 0) + (sim3.isWin ? 1 : 0);
                 var darkIsWin = winCount >= 2 ? 1 : 0;
-                var newRank = (darkIsWin === 1 && curRank > 1) ? curRank - 1 : curRank;
-                this.data.dark_arena_rank = newRank;
+
+                this.data.dark_arena_fight_count = Number(this.data.dark_arena_fight_count || 0) + 1;
+                this.data.dark_arena_last_fight_time = nowFightTs;
                 this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
-                if (darkIsWin === 1) this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
-                var fData1 = JSON.stringify(sim1.replay);
-                var fData2 = JSON.stringify(sim2.replay);
-                var fData3 = JSON.stringify(sim3.replay);
+                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
+
+                var curDarkRank = Number(this.data.dark_arena_rank || 100);
+                var newDarkRank = curDarkRank;
+                if (darkIsWin === 1) {
+                    newDarkRank = (oppMatch && oppMatch.rank > 0 && oppMatch.rank < curDarkRank) ? Number(oppMatch.rank) : Math.max(1, curDarkRank - 1);
+                    this.data.dark_arena_rank = newDarkRank;
+                    this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
+                    this.addStone(100, queuePush);
+                    this.addCurrency(10, 200, queuePush);
+                }
+
+                var fData1 = sim1.replay ? JSON.stringify(sim1.replay) : "";
+                var fData2 = sim2.replay ? JSON.stringify(sim2.replay) : "";
+                var fData3 = sim3.replay ? JSON.stringify(sim3.replay) : "";
                 var darkReplayId = "dark_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
                 storeArenaReplay(darkReplayId, this.data.id || 1, targetFighterId, darkIsWin, fData1);
-                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
                     useZip: false,
                     isWin: darkIsWin,
-                    rank: newRank,
+                    rank: newDarkRank,
+                    fightCount: Number(this.data.dark_arena_fight_count || 0),
+                    lastFightTime: nowFightTs,
                     fightData1: fData1,
                     fightData2: fData2,
                     fightData3: fData3,
                     settled: true,
-                    reward: { gold: 50000, stone: 100 }
+                    reward: darkIsWin === 1 ? { gold: 50000, stone: 100 } : {}
                 });
                 return true;
             } else {
-                var curRank = Number(this.data.arena_rank || 50);
+                var atkIdList;
+                if (params && params[2] && String(params[2]).trim().length > 0) {
+                    atkIdList = resolveHeroIdList(this, params[2], 5);
+                    this.data.arena_atk_lineup = atkIdList.join(",");
+                } else {
+                    atkIdList = resolveHeroIdList(this, this.data.arena_atk_lineup || this.data.arena_def_lineup || this.data.arena_lineup, 5);
+                }
+                var atk1Payloads = atkIdList.map(function (hid) { return self.computeHeroPayload(hid); });
                 var fightSeed = Math.floor(Math.random() * 900000) + 100000;
-                var atk1 = myHeroPayloads.slice(0, 5);
-                var sim = simulateArenaBattle(atk1, defHeros1, fightSeed);
+                var sim = simulateArenaBattle(atk1Payloads, defHeros1, fightSeed);
                 var isWin = sim.isWin ? 1 : 0;
-                var newRank = (isWin === 1 && curRank > 1) ? curRank - 1 : curRank;
-                var rankChange = (isWin === 1 && curRank > 1) ? 1 : 0;
-                this.data.arena_rank = newRank;
+
+                this.data.arena_fight_count = Number(this.data.arena_fight_count || 0) + 1;
+                this.data.arena_last_fight_time = nowFightTs;
                 this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
+
+                var curRank = Number(this.data.arena_rank || 50);
+                var newRank = curRank;
+                var rankChange = 0;
+                if (isWin === 1) {
+                    newRank = (oppMatch && oppMatch.rank > 0 && oppMatch.rank < curRank) ? Number(oppMatch.rank) : Math.max(1, curRank - 1);
+                    rankChange = Math.max(0, curRank - newRank);
+                    this.data.arena_rank = newRank;
+                    this.data.arena_win_count = Number(this.data.arena_win_count || 0) + 1;
+                    this.addStone(100, queuePush);
+                    this.addCurrency(10, 200, queuePush);
+                }
+
                 var fightDataStr = JSON.stringify(sim.replay);
                 var arenaReplayId = "arena_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
                 storeArenaReplay(arenaReplayId, this.data.id || 1, targetFighterId, isWin, fightDataStr);
@@ -1467,8 +2021,10 @@ const ArenaAndTowerHandler = {
                     rank: newRank,
                     rankChange: rankChange,
                     bestRankChange: rankChange,
+                    fightCount: Number(this.data.arena_fight_count || 0),
+                    lastFightTime: nowFightTs,
                     settled: true,
-                    reward: { gold: 50000, stone: 100 }
+                    reward: isWin === 1 ? { gold: 50000, stone: 100 } : {}
                 });
                 return true;
             }
@@ -1623,37 +2179,37 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.DarkArenaInfo) {
-            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            myHeroIds.sort(function (a, b) {
-                var ha = self.data.heros[a];
-                var hb = self.data.heros[b];
-                var pwa = Number((ha && ha.power) || (ha && ha.level * 100) || 0);
-                var pwb = Number((hb && hb.power) || (hb && hb.level * 100) || 0);
-                return pwb - pwa;
-            });
-            var top15 = myHeroIds.slice(0, 15);
-            var f1 = [], f2 = [], f3 = [];
-            if (this.data.dark_arena_lineup_1) {
-                f1 = this.data.dark_arena_lineup_1.split(",").map(Number).filter(Boolean);
+            resetDailyArenaCountersIfNeeded(this.data, "dark_arena");
+            var defTeams = resolveMultiTeamLineups(this, [
+                this.data.dark_arena_def_1 || this.data.dark_arena_lineup_1,
+                this.data.dark_arena_def_2 || this.data.dark_arena_lineup_2,
+                this.data.dark_arena_def_3 || this.data.dark_arena_lineup_3
+            ], 3, 5);
+            if (!this.data.dark_arena_def_1 && !this.data.dark_arena_lineup_1) {
+                this.data.dark_arena_def_1 = defTeams[0].join(",");
+                this.data.dark_arena_def_2 = defTeams[1].join(",");
+                this.data.dark_arena_def_3 = defTeams[2].join(",");
+                this.data.dark_arena_lineup_1 = this.data.dark_arena_def_1;
+                this.data.dark_arena_lineup_2 = this.data.dark_arena_def_2;
+                this.data.dark_arena_lineup_3 = this.data.dark_arena_def_3;
             }
-            if (this.data.dark_arena_lineup_2) {
-                f2 = this.data.dark_arena_lineup_2.split(",").map(Number).filter(Boolean);
+            var hasSavedAtk = (
+                this.data.dark_arena_atk_1 !== undefined ||
+                this.data.dark_arena_atk_2 !== undefined ||
+                this.data.dark_arena_atk_3 !== undefined
+            );
+            var atkTeams = hasSavedAtk
+                ? resolveMultiTeamLineups(this, [this.data.dark_arena_atk_1, this.data.dark_arena_atk_2, this.data.dark_arena_atk_3], 3, 5)
+                : [defTeams[0].slice(0), defTeams[1].slice(0), defTeams[2].slice(0)];
+            if (!hasSavedAtk) {
+                this.data.dark_arena_atk_1 = atkTeams[0].join(",");
+                this.data.dark_arena_atk_2 = atkTeams[1].join(",");
+                this.data.dark_arena_atk_3 = atkTeams[2].join(",");
             }
-            if (this.data.dark_arena_lineup_3) {
-                f3 = this.data.dark_arena_lineup_3.split(",").map(Number).filter(Boolean);
-            }
-            if (f1.length === 0 && f2.length === 0 && f3.length === 0) {
-                f1 = top15.slice(0, 5);
-                f2 = top15.slice(5, 10);
-                f3 = top15.slice(10, 15);
-                this.data.dark_arena_lineup_1 = f1.join(",");
-                this.data.dark_arena_lineup_2 = f2.join(",");
-                this.data.dark_arena_lineup_3 = f3.join(",");
-                this.save();
-            }
-            var defHeros1 = f1.map(function (hid) { return self.computeHeroPayload(hid); });
-            var defHeros2 = f2.map(function (hid) { return self.computeHeroPayload(hid); });
-            var defHeros3 = f3.map(function (hid) { return self.computeHeroPayload(hid); });
+
+            var defHeros1 = defTeams[0].map(function (hid) { return self.computeHeroPayload(hid); });
+            var defHeros2 = defTeams[1].map(function (hid) { return self.computeHeroPayload(hid); });
+            var defHeros3 = defTeams[2].map(function (hid) { return self.computeHeroPayload(hid); });
 
             var nowSec = Math.floor(Date.now() / 1000);
             var lastTime = Number(this.data.dark_arena_last_point_time || nowSec);
@@ -1662,22 +2218,22 @@ const ArenaAndTowerHandler = {
             var accumulated = Number(this.data.dark_arena_accumulated_point || 0) + Math.floor(elapsedHours * hourPt);
             this.data.dark_arena_accumulated_point = accumulated;
             this.data.dark_arena_last_point_time = nowSec;
+            this.save();
+
+            var darkRankNum = Number(this.data.dark_arena_rank || 10);
+            var darkRankObj = buildArenaPlayerRankPayload(this, darkRankNum, {
+                winCount: Number(this.data.dark_arena_win_count || 0),
+                fightValue: calcArenaTeamPower(defHeros1) + calcArenaTeamPower(defHeros2) + calcArenaTeamPower(defHeros3)
+            });
+            darkRankObj.def_heros_1 = JSON.stringify(defHeros1);
+            darkRankObj.def_heros_2 = JSON.stringify(defHeros2);
+            darkRankObj.def_heros_3 = JSON.stringify(defHeros3);
+            darkRankObj.atk_heros_1 = atkTeams[0].join(",");
+            darkRankObj.atk_heros_2 = atkTeams[1].join(",");
+            darkRankObj.atk_heros_3 = atkTeams[2].join(",");
 
             respond({
-                rank: {
-                    rank: Number(this.data.dark_arena_rank || 10),
-                    icon: Number(this.data.icon || 80110070),
-                    win_count: Number(this.data.dark_arena_win_count || 10),
-                    player_lv: Number(this.data.team_lv || 1),
-                    player_name: this.data.team_name || "Nhẫn Giả",
-                    player_id: this.getNumericId(),
-                    fighter_id: this.getNumericId(),
-                    fight_value: 5000,
-                    server_id: 1,
-                    def_heros_1: JSON.stringify(defHeros1),
-                    def_heros_2: JSON.stringify(defHeros2),
-                    def_heros_3: JSON.stringify(defHeros3)
-                },
+                rank: darkRankObj,
                 fightCount: Number(this.data.dark_arena_fight_count || 0),
                 lastFightTime: Number(this.data.dark_arena_last_fight_time || 0),
                 hour_point: hourPt,
@@ -1973,13 +2529,44 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.CrossArenaInfo || cmd === "CrossArenaInfo") {
+            resetDailyArenaCountersIfNeeded(this.data, "cross_arena");
+            var caNowSec = Math.floor(Date.now() / 1000);
+            var caLastPtTime = Number(this.data.cross_arena_last_point_time || caNowSec);
+            var caHours = Math.max(0, (caNowSec - caLastPtTime) / 3600);
+            var caHourPt = 50;
+            var caAccPt = Number(this.data.cross_arena_record_point || 0) + Math.floor(caHours * caHourPt);
+            this.data.cross_arena_record_point = caAccPt;
+            this.data.cross_arena_last_point_time = caNowSec;
+
+            var caTop = getSortedOwnedHeroIds(this).slice(0, 5);
+            var caDefIds = resolveHeroIdList(this, this.data.cross_arena_def_1, 5, caTop);
+            var caAtkIds = (this.data.cross_arena_atk_1 !== undefined)
+                ? resolveHeroIdList(this, this.data.cross_arena_atk_1, 5, caDefIds)
+                : caDefIds.slice(0);
+            if (!this.data.cross_arena_def_1) this.data.cross_arena_def_1 = caDefIds.join(",");
+            if (this.data.cross_arena_atk_1 === undefined) this.data.cross_arena_atk_1 = caAtkIds.join(",");
+            var caBanStr = typeof this.data.cross_arena_ban === "string" ? this.data.cross_arena_ban : "";
+            var caDefPayloads = caDefIds.map(function (hid) { return self.computeHeroPayload(hid); });
+
+            var caRankNum = Number(this.data.cross_arena_rank || 10);
+            var caRankObj = buildArenaPlayerRankPayload(this, caRankNum, {
+                winCount: Number(this.data.cross_arena_win_count || 0),
+                fightValue: calcArenaTeamPower(caDefPayloads)
+            });
+            caRankObj.def_heros_1 = JSON.stringify(caDefPayloads);
+            caRankObj.def_heros_2 = caBanStr;
+            caRankObj.atk_heros_1 = caAtkIds.join(",");
+            caRankObj.atk_heros_2 = "";
+            this.save();
+
             respond({
-                rank: Number(this.data.cross_arena_rank || 1),
-                score: Number(this.data.cross_arena_score || 1600),
-                fightCount: Number(this.data.cross_arena_fight_cnt || 5),
-                buyFightCount: 0,
-                cdTime: 0,
-                lineup: this.data.cross_arena_lineup || [10010, 10020, 10030, 10040, 10050]
+                arena_lv: 1,
+                team_num: 2,
+                fightCount: Number(this.data.cross_arena_fight_count || 0),
+                lastFightTime: Number(this.data.cross_arena_last_fight_time || 0),
+                hour_point: caHourPt,
+                total_point: caAccPt,
+                rank: caRankObj
             });
             return true;
         }
@@ -1989,10 +2576,12 @@ const ArenaAndTowerHandler = {
                 var pLv = Number(this.data.team_lv || 1);
                 var minLv = Math.max(1, Math.floor(pLv / 10) * 10);
                 var maxLv = minLv + 9;
-                var myScore = Number(this.data.cross_arena_score || 1600);
+                var myScore = Number(this.data.cross_arena_record_point || 0);
+                var myIconCa = Number(this.data.icon || 10020);
+                if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[myIconCa]) myIconCa = 10020;
                 var allGroupInfo = {
                     my_info: {
-                        cur_rank: Number(this.data.cross_arena_rank || 1),
+                        cur_rank: Number(this.data.cross_arena_rank || 10),
                         lv: 1,
                         min_lv: minLv,
                         max_lv: maxLv,
@@ -2004,7 +2593,7 @@ const ArenaAndTowerHandler = {
                         min_lv: minLv,
                         max_lv: maxLv,
                         data: {
-                            icon: 10020,
+                            icon: myIconCa,
                             player_name: this.data.team_name || "Nhẫn Giả",
                             server_id: 1
                         }
@@ -2014,8 +2603,8 @@ const ArenaAndTowerHandler = {
                         min_lv: 50,
                         max_lv: 69,
                         data: {
-                            icon: 11060,
-                            player_name: "Madara Uchiha",
+                            icon: 10030,
+                            player_name: "Sasuke Taka",
                             server_id: 2
                         }
                     },
@@ -2024,8 +2613,8 @@ const ArenaAndTowerHandler = {
                         min_lv: 70,
                         max_lv: 89,
                         data: {
-                            icon: 11000,
-                            player_name: "Hashirama Senju",
+                            icon: 10010,
+                            player_name: "Hokage Đệ Tứ",
                             server_id: 1
                         }
                     },
@@ -2034,8 +2623,8 @@ const ArenaAndTowerHandler = {
                         min_lv: 90,
                         max_lv: 100,
                         data: {
-                            icon: 10710,
-                            player_name: "Minato Namikaze",
+                            icon: 10050,
+                            player_name: "Kakashi Ám Bộ",
                             server_id: 3
                         }
                     }
@@ -2044,100 +2633,222 @@ const ArenaAndTowerHandler = {
                 return true;
             }
 
-            respond({
-                ranks: [
-                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 10020, score: 2400, team_lv: Number(this.data.team_lv || 100) },
-                    { rank: 2, player_id: 4520, player_name: "Madara", server_id: 2, icon: 11060, score: 2350, team_lv: 99 },
-                    { rank: 3, player_id: 4521, player_name: "Hashirama", server_id: 1, icon: 11000, score: 2300, team_lv: 98 }
-                ]
+            var caPeers = buildOpponentMatchups(this, "cross_arena", Number(this.data.cross_arena_rank || 10), 2, { rotate: false, isCross: true });
+            var caRankSelf = buildArenaPlayerRankPayload(this, Number(this.data.cross_arena_rank || 10), {
+                winCount: Number(this.data.cross_arena_win_count || 0),
+                fightValue: getPlayerArenaBenchmark(this).totalPower
             });
+            caRankSelf.score = Number(this.data.cross_arena_score || 1600);
+            caRankSelf.team_lv = Number(this.data.team_lv || 1);
+            var caRanks = [caRankSelf].concat(caPeers.map(function (m) {
+                return {
+                    rank: m.rank,
+                    player_id: m.player_id,
+                    player_name: m.player_name,
+                    server_id: m.server_id,
+                    icon: m.icon,
+                    score: 1600 + m.win_count * 10,
+                    team_lv: m.player_lv,
+                    player_lv: m.player_lv,
+                    fight_value: m.fight_value
+                };
+            })).sort(function (a, b) { return Number(a.rank || 999) - Number(b.rank || 999); });
+            respond({ ranks: caRanks });
             return true;
         }
 
         if (cmd === "CrossMatchArenaFighters" || cmd === SVRCMD.CrossMatchArenaFighters) {
-            var defHerosJson1 = JSON.stringify([this.createDefaultHeroRecord(11060), this.createDefaultHeroRecord(11000), this.createDefaultHeroRecord(10510)]);
-            var defHerosJson2 = JSON.stringify([this.createDefaultHeroRecord(10650), this.createDefaultHeroRecord(10710), this.createDefaultHeroRecord(10020)]);
-            var defHerosJson3 = JSON.stringify([this.createDefaultHeroRecord(10010), this.createDefaultHeroRecord(10030), this.createDefaultHeroRecord(10040)]);
-            respond([
-                { player_id: 4520, fighter_id: 4520, player_name: "Madara Uchiha", server_id: 2, rank: 2, score: 2350, icon: 11060, team_lv: 99, power: 1500000, fight_value: 1500000, def_heros_1: defHerosJson1, def_heros_2: defHerosJson2, def_heros_3: defHerosJson3 },
-                { player_id: 4521, fighter_id: 4521, player_name: "Hashirama Senju", server_id: 1, rank: 3, score: 2300, icon: 11000, team_lv: 98, power: 1450000, fight_value: 1450000, def_heros_1: defHerosJson1, def_heros_2: defHerosJson2, def_heros_3: defHerosJson3 },
-                { player_id: 4522, fighter_id: 4522, player_name: "Minato Namikaze", server_id: 3, rank: 4, score: 2250, icon: 10710, team_lv: 97, power: 1400000, fight_value: 1400000, def_heros_1: defHerosJson1, def_heros_2: defHerosJson2, def_heros_3: defHerosJson3 }
-            ]);
+            var caMyRank = Number(this.data.cross_arena_rank || 10);
+            var caMatchups = buildOpponentMatchups(this, "cross_arena", caMyRank, 2, { rotate: true, isCross: true });
+            var caResp = caMatchups.map(function (m) {
+                return {
+                    player_id: m.player_id,
+                    fighter_id: m.fighter_id,
+                    player_name: m.player_name,
+                    server_id: m.server_id,
+                    rank: m.rank,
+                    score: 1600 + m.win_count * 10,
+                    icon: m.icon,
+                    player_lv: m.player_lv,
+                    team_lv: m.player_lv,
+                    win_count: m.win_count,
+                    power: m.fight_value,
+                    fight_value: m.fight_value,
+                    def_heros_1: JSON.stringify(m.teams[0] || []),
+                    def_heros_2: ""
+                };
+            });
+            respond(caResp);
             return true;
         }
 
         if (cmd === "CrossPlayerArenaInfo" || cmd === SVRCMD.CrossPlayerArenaInfo) {
-            var targetPid = Number((params && params[2]) || (params && params[0]) || 4520);
-            var defHerosJson1 = JSON.stringify([this.createDefaultHeroRecord(11060), this.createDefaultHeroRecord(11000), this.createDefaultHeroRecord(10510)]);
-            var defHerosJson2 = JSON.stringify([this.createDefaultHeroRecord(10650), this.createDefaultHeroRecord(10710), this.createDefaultHeroRecord(10020)]);
-            var defHerosJson3 = JSON.stringify([this.createDefaultHeroRecord(10010), this.createDefaultHeroRecord(10030), this.createDefaultHeroRecord(10040)]);
+            var caLookup = function (cacheArr) {
+                var cands = params ? [Number(params[1] || 0), Number(params[2] || 0), Number(params[0] || 0)] : [];
+                for (var ci = 0; ci < cands.length; ci++) {
+                    if (cands[ci] <= 0) continue;
+                    for (var mi = 0; mi < cacheArr.length; mi++) {
+                        if (Number(cacheArr[mi].player_id) === cands[ci] || Number(cacheArr[mi].fighter_id) === cands[ci]) {
+                            return cacheArr[mi];
+                        }
+                    }
+                }
+                return null;
+            };
+            var caKey = this.getNumericId() + "_cross_arena";
+            var caList = _cachedMatchups[caKey] || buildOpponentMatchups(this, "cross_arena", Number(this.data.cross_arena_rank || 10), 2, { rotate: false, isCross: true });
+            var caTarget = caLookup(caList) || caList[0];
+            var caOppDef1 = (caTarget && caTarget.teams && caTarget.teams[0]) ? caTarget.teams[0] : [];
             respond({
-                player_id: targetPid,
-                fighter_id: targetPid,
-                server_id: 2,
-                team_num: 2,
-                win_count: 50,
-                rank: 2,
-                player_name: "Madara Uchiha",
-                player_lv: 99,
-                icon: 11060,
-                fight_value: 1500000,
-                def_heros_1: defHerosJson1,
-                def_heros_2: defHerosJson2,
-                def_heros_3: defHerosJson3
+                player_id: caTarget.player_id,
+                fighter_id: caTarget.fighter_id,
+                server_id: caTarget.server_id,
+                team_num: 1,
+                win_count: caTarget.win_count,
+                rank: caTarget.rank,
+                player_name: caTarget.player_name,
+                player_lv: caTarget.player_lv,
+                icon: caTarget.icon,
+                fight_value: caTarget.fight_value,
+                def_heros_1: JSON.stringify(caOppDef1),
+                def_heros_2: ""
             });
             return true;
         }
 
         if (cmd === "CrossSetArenaLineup" || cmd === SVRCMD.CrossSetArenaLineup) {
-            this.data.cross_arena_lineup = (params && params[0]) ? params[0] : [10010, 10020, 10030, 10040, 10050];
+            var caSetType = (params && params[0] !== undefined) ? Number(params[0]) : 1;
+            var caFiltered = resolveHeroIdList(this, params ? params[1] : "", 5);
+            if (caSetType === 2) {
+                this.data.cross_arena_def_1 = caFiltered.join(",");
+                this.data.cross_arena_ban = (params && params[2] !== undefined)
+                    ? parseHeroIdInput(params[2]).join(",")
+                    : "";
+            } else {
+                this.data.cross_arena_atk_1 = caFiltered.join(",");
+            }
+            this.data.cross_arena_lineup = caFiltered;
+            this.save();
             respond({ status: 1 });
             return true;
         }
 
         if (cmd === "CrossArenaFight" || cmd === SVRCMD.CrossArenaFight) {
-            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
-            var atk1 = myHeroIds.slice(0, 5).map(function (hid) { return self.computeHeroPayload(hid); });
-            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function (hid) { return self.computeHeroPayload(hid); });
-            var def1 = [generateCompetentHeroRecord(11060, 85, 12, 5), generateCompetentHeroRecord(11000, 85, 12, 5), generateCompetentHeroRecord(10510, 85, 12, 5)];
-            var def2 = [generateCompetentHeroRecord(10650, 85, 12, 5), generateCompetentHeroRecord(10710, 85, 12, 5), generateCompetentHeroRecord(10020, 85, 12, 5)];
-            var sim1 = simulateArenaBattle(atk1, def1);
-            var sim2 = simulateArenaBattle(atk2, def2);
+            resetDailyArenaCountersIfNeeded(this.data, "cross_arena");
+            var caFightNow = Math.floor(Date.now() / 1000);
+            var caFightKey = this.getNumericId() + "_cross_arena";
+            var caOpps = _cachedMatchups[caFightKey] || buildOpponentMatchups(this, "cross_arena", Number(this.data.cross_arena_rank || 10), 2, { rotate: false, isCross: true });
+            var caTargetPid = (params && params[1] !== undefined) ? Number(params[1]) : Number((params && params[0]) || 0);
+            var caOpp = findCachedOpponent(this, "cross_arena", caTargetPid) || caOpps[0];
+
+            var caFightAtkIds = resolveHeroIdList(this, this.data.cross_arena_atk_1 || this.data.cross_arena_def_1 || this.data.cross_arena_lineup, 5);
+            var atk1 = caFightAtkIds.map(function (hid) { return self.computeHeroPayload(hid); });
+            var def1 = (caOpp && caOpp.teams && caOpp.teams[0]) ? caOpp.teams[0] : [];
+            var caSeed = Math.floor(Math.random() * 900000) + 100000;
+            var sim1 = simulateArenaBattle(atk1, def1, caSeed);
             var isWin = sim1.isWin ? 1 : 0;
+
+            this.data.cross_arena_fight_count = Number(this.data.cross_arena_fight_count || 0) + 1;
+            this.data.cross_arena_last_fight_time = caFightNow;
+            var oldCaRank = Number(this.data.cross_arena_rank || 10);
             if (isWin === 1) {
-                this.data.cross_arena_rank = 1;
+                this.data.cross_arena_rank = (caOpp && caOpp.rank > 0 && caOpp.rank < oldCaRank) ? Number(caOpp.rank) : Math.max(1, oldCaRank - 1);
+                this.data.cross_arena_win_count = Number(this.data.cross_arena_win_count || 0) + 1;
                 this.data.cross_arena_score = Number(this.data.cross_arena_score || 1600) + 30;
+                this.data.cross_arena_record_point = Number(this.data.cross_arena_record_point || 0) + 50;
                 this.addCurrency(10, 100, queuePush);
             }
+            if (!Array.isArray(this.data.cross_arena_history)) this.data.cross_arena_history = [];
+            this.data.cross_arena_history.unshift({
+                time: caFightNow,
+                is_win: isWin,
+                target_name: caOpp ? caOpp.player_name : "Đối Thủ LSV",
+                server_id: caOpp ? caOpp.server_id : 2,
+                rank_change: isWin ? Math.max(0, oldCaRank - Number(this.data.cross_arena_rank || 1)) : 0,
+                score_change: isWin ? 30 : 0
+            });
+            if (this.data.cross_arena_history.length > 20) this.data.cross_arena_history.length = 20;
             this.save();
+
             respond({
                 useZip: false,
                 isWin: isWin,
                 rank: Number(this.data.cross_arena_rank || 1),
-                score: this.data.cross_arena_score,
+                score: Number(this.data.cross_arena_score || 1600),
+                fightCount: Number(this.data.cross_arena_fight_count || 0),
+                lastFightTime: caFightNow,
                 fightData1: JSON.stringify(sim1.replay),
-                fightData2: JSON.stringify(sim2.replay)
+                fightData2: ""
             });
             return true;
         }
 
         if (cmd === "CrossArenaFightHistory") {
             respond({
-                history: [
-                    { time: Math.floor(Date.now() / 1000) - 300, is_win: 1, target_name: "Madara Uchiha", server_id: 2, rank_change: 1, score_change: 30 }
-                ]
+                history: Array.isArray(this.data.cross_arena_history) ? this.data.cross_arena_history : []
             });
             return true;
         }
 
         if (cmd === "CrossDarkArenaInfo" || cmd === SVRCMD.CrossDarkArenaInfo) {
+            resetDailyArenaCountersIfNeeded(this.data, "cross_dark");
+            var cdNowSec = Math.floor(Date.now() / 1000);
+            var cdLastPt = Number(this.data.cross_dark_last_point_time || cdNowSec);
+            var cdHours = Math.max(0, (cdNowSec - cdLastPt) / 3600);
+            var cdHourPt = 50;
+            var cdAccPt = Number(this.data.cross_dark_record_point || 0) + Math.floor(cdHours * cdHourPt);
+            this.data.cross_dark_record_point = cdAccPt;
+            this.data.cross_dark_last_point_time = cdNowSec;
+
+            var legacyCd = this.data.cross_dark_lineups || {};
+            var cdDefTeams = resolveMultiTeamLineups(this, [
+                this.data.cross_dark_def_1 || legacyCd[1],
+                this.data.cross_dark_def_2 || legacyCd[2],
+                this.data.cross_dark_def_3 || legacyCd[3]
+            ], 3, 5);
+            if (!this.data.cross_dark_def_1) {
+                this.data.cross_dark_def_1 = cdDefTeams[0].join(",");
+                this.data.cross_dark_def_2 = cdDefTeams[1].join(",");
+                this.data.cross_dark_def_3 = cdDefTeams[2].join(",");
+            }
+            var hasSavedCdAtk = (
+                this.data.cross_dark_atk_1 !== undefined ||
+                this.data.cross_dark_atk_2 !== undefined ||
+                this.data.cross_dark_atk_3 !== undefined
+            );
+            var cdAtkTeams = hasSavedCdAtk
+                ? resolveMultiTeamLineups(this, [this.data.cross_dark_atk_1, this.data.cross_dark_atk_2, this.data.cross_dark_atk_3], 3, 5)
+                : [cdDefTeams[0].slice(0), cdDefTeams[1].slice(0), cdDefTeams[2].slice(0)];
+            if (!hasSavedCdAtk) {
+                this.data.cross_dark_atk_1 = cdAtkTeams[0].join(",");
+                this.data.cross_dark_atk_2 = cdAtkTeams[1].join(",");
+                this.data.cross_dark_atk_3 = cdAtkTeams[2].join(",");
+            }
+
+            var cdDefPayloads1 = cdDefTeams[0].map(function (hid) { return self.computeHeroPayload(hid); });
+            var cdDefPayloads2 = cdDefTeams[1].map(function (hid) { return self.computeHeroPayload(hid); });
+            var cdDefPayloads3 = cdDefTeams[2].map(function (hid) { return self.computeHeroPayload(hid); });
+            var cdRankNum = Number(this.data.cross_dark_rank || 10);
+            var cdRankObj = buildArenaPlayerRankPayload(this, cdRankNum, {
+                winCount: Number(this.data.cross_dark_win_count || 0),
+                fightValue: calcArenaTeamPower(cdDefPayloads1) + calcArenaTeamPower(cdDefPayloads2) + calcArenaTeamPower(cdDefPayloads3)
+            });
+            cdRankObj.def_heros_1 = JSON.stringify(cdDefPayloads1);
+            cdRankObj.def_heros_2 = JSON.stringify(cdDefPayloads2);
+            cdRankObj.def_heros_3 = JSON.stringify(cdDefPayloads3);
+            cdRankObj.atk_heros_1 = cdAtkTeams[0].join(",");
+            cdRankObj.atk_heros_2 = cdAtkTeams[1].join(",");
+            cdRankObj.atk_heros_3 = cdAtkTeams[2].join(",");
+            this.save();
+
             respond({
-                rank: Number(this.data.cross_dark_rank || 1),
-                score: Number(this.data.cross_dark_score || 1500),
-                recordPoint: Number(this.data.cross_dark_record_point || 0),
-                cdTime: 0,
-                lineup: this.data.cross_dark_lineup || [10010, 10020, 10030, 10040, 10050]
+                arena_lv: 1,
+                team_num: 3,
+                fightCount: Number(this.data.cross_dark_fight_count || 0),
+                lastFightTime: Number(this.data.cross_dark_last_fight_time || 0),
+                hour_point: cdHourPt,
+                total_point: cdAccPt,
+                rank: cdRankObj
             });
             return true;
         }
@@ -2147,10 +2858,12 @@ const ArenaAndTowerHandler = {
                 var pLv = Number(this.data.team_lv || 1);
                 var minLv = Math.max(1, Math.floor(pLv / 10) * 10);
                 var maxLv = minLv + 9;
-                var myScore = Number(this.data.cross_dark_score || 1500);
+                var myScore = Number(this.data.cross_dark_record_point || 0);
+                var myIconCd = Number(this.data.icon || 10020);
+                if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[myIconCd]) myIconCd = 10020;
                 var allGroupInfo = {
                     my_info: {
-                        cur_rank: Number(this.data.cross_dark_rank || 1),
+                        cur_rank: Number(this.data.cross_dark_rank || 10),
                         lv: 1,
                         min_lv: minLv,
                         max_lv: maxLv,
@@ -2162,7 +2875,7 @@ const ArenaAndTowerHandler = {
                         min_lv: minLv,
                         max_lv: maxLv,
                         data: {
-                            icon: 10020,
+                            icon: myIconCd,
                             player_name: this.data.team_name || "Nhẫn Giả",
                             server_id: 1
                         }
@@ -2172,8 +2885,8 @@ const ArenaAndTowerHandler = {
                         min_lv: 50,
                         max_lv: 69,
                         data: {
-                            icon: 11050,
-                            player_name: "Obito Lục Đạo",
+                            icon: 10030,
+                            player_name: "Itachi Uchiha",
                             server_id: 2
                         }
                     },
@@ -2182,8 +2895,8 @@ const ArenaAndTowerHandler = {
                         min_lv: 70,
                         max_lv: 89,
                         data: {
-                            icon: 10650,
-                            player_name: "Jiraiya Tiên Nhân",
+                            icon: 10010,
+                            player_name: "Hokage Đệ Tứ",
                             server_id: 1
                         }
                     },
@@ -2192,8 +2905,8 @@ const ArenaAndTowerHandler = {
                         min_lv: 90,
                         max_lv: 100,
                         data: {
-                            icon: 11000,
-                            player_name: "Itachi Susanoo",
+                            icon: 10050,
+                            player_name: "Kakashi Ám Bộ",
                             server_id: 3
                         }
                     }
@@ -2202,68 +2915,113 @@ const ArenaAndTowerHandler = {
                 return true;
             }
 
-            respond({
-                ranks: [
-                    { rank: 1, player_id: this.getNumericId(), player_name: this.data.team_name || "Nhẫn Giả", server_id: 1, icon: 10020, score: 2100, team_lv: Number(this.data.team_lv || 100) },
-                    { rank: 2, player_id: 734, player_name: "Obito Lục Đạo", server_id: 2, icon: 11050, score: 2050, team_lv: 98 }
-                ]
+            var cdPeers = buildOpponentMatchups(this, "cross_dark", Number(this.data.cross_dark_rank || 10), 3, { rotate: false, isCross: true });
+            var cdRankSelf = buildArenaPlayerRankPayload(this, Number(this.data.cross_dark_rank || 10), {
+                winCount: Number(this.data.cross_dark_win_count || 0),
+                fightValue: getPlayerArenaBenchmark(this).totalPower
             });
+            cdRankSelf.score = Number(this.data.cross_dark_score || 1500);
+            cdRankSelf.team_lv = Number(this.data.team_lv || 1);
+            var cdRanks = [cdRankSelf].concat(cdPeers.map(function (m) {
+                return {
+                    rank: m.rank,
+                    player_id: m.player_id,
+                    player_name: m.player_name,
+                    server_id: m.server_id,
+                    icon: m.icon,
+                    score: 1500 + m.win_count * 10,
+                    team_lv: m.player_lv,
+                    player_lv: m.player_lv,
+                    fight_value: m.fight_value
+                };
+            })).sort(function (a, b) { return Number(a.rank || 999) - Number(b.rank || 999); });
+            respond({ ranks: cdRanks });
             return true;
         }
 
-        if (cmd === "CrossMatcDarkhFighters") {
-            respond({
-                fighters: [
-                    { player_id: 734, player_name: "Obito Lục Đạo", server_id: 2, rank: 2, score: 2050, icon: 11050, team_lv: 98, power: 1600000 }
-                ]
+        if (cmd === "CrossMatcDarkhFighters" || cmd === SVRCMD.CrossMatcDarkhFighters) {
+            var cdMatchups = buildOpponentMatchups(this, "cross_dark", Number(this.data.cross_dark_rank || 10), 3, { rotate: true, isCross: true });
+            var cdResp = cdMatchups.map(function (m) {
+                var t1 = m.teams[0] || [];
+                var t2 = m.teams[1] || t1;
+                var t3 = m.teams[2] || t1;
+                return {
+                    player_id: m.player_id,
+                    fighter_id: m.fighter_id,
+                    player_name: m.player_name,
+                    server_id: m.server_id,
+                    rank: m.rank,
+                    score: 1500 + m.win_count * 10,
+                    icon: m.icon,
+                    player_lv: m.player_lv,
+                    team_lv: m.player_lv,
+                    win_count: m.win_count,
+                    power: m.fight_value,
+                    fight_value: m.fight_value,
+                    def_heros_1: JSON.stringify(t1),
+                    def_heros_2: JSON.stringify(t2),
+                    def_heros_3: JSON.stringify(t3)
+                };
             });
+            respond(cdResp);
             return true;
         }
 
         if (cmd === "CrossPlayerDarkArenaInfo" || cmd === SVRCMD.CrossPlayerDarkArenaInfo) {
-            var defHeros1 = [
-                { hero_id: 10020, lv: 85, quality: 12, bagate_level: 1 },
-                { hero_id: 10030, lv: 85, quality: 12, bagate_level: 1 },
-                { hero_id: 10040, lv: 85, quality: 12, bagate_level: 1 },
-                { hero_id: 10050, lv: 85, quality: 12, bagate_level: 1 },
-                { hero_id: 10010, lv: 85, quality: 12, bagate_level: 1 }
-            ];
-            var defHeros2 = [
-                { hero_id: 10060, lv: 82, quality: 11, bagate_level: 1 },
-                { hero_id: 10070, lv: 82, quality: 11, bagate_level: 1 },
-                { hero_id: 10080, lv: 82, quality: 11, bagate_level: 1 },
-                { hero_id: 10090, lv: 82, quality: 11, bagate_level: 1 },
-                { hero_id: 10100, lv: 82, quality: 11, bagate_level: 1 }
-            ];
-            var defHeros3 = [
-                { hero_id: 10110, lv: 80, quality: 10, bagate_level: 1 },
-                { hero_id: 10120, lv: 80, quality: 10, bagate_level: 1 },
-                { hero_id: 10130, lv: 80, quality: 10, bagate_level: 1 },
-                { hero_id: 10140, lv: 80, quality: 10, bagate_level: 1 },
-                { hero_id: 10150, lv: 80, quality: 10, bagate_level: 1 }
-            ];
+            var cdLookupKey = this.getNumericId() + "_cross_dark";
+            var cdList = _cachedMatchups[cdLookupKey] || buildOpponentMatchups(this, "cross_dark", Number(this.data.cross_dark_rank || 10), 3, { rotate: false, isCross: true });
+            var cdCands = params ? [Number(params[1] || 0), Number(params[2] || 0), Number(params[0] || 0)] : [];
+            var cdTarget = null;
+            for (var cdi = 0; cdi < cdCands.length && !cdTarget; cdi++) {
+                if (cdCands[cdi] <= 0) continue;
+                for (var cmi = 0; cmi < cdList.length; cmi++) {
+                    if (Number(cdList[cmi].player_id) === cdCands[cdi] || Number(cdList[cmi].fighter_id) === cdCands[cdi]) {
+                        cdTarget = cdList[cmi];
+                        break;
+                    }
+                }
+            }
+            if (!cdTarget) cdTarget = cdList[0];
+            var cdT1 = (cdTarget.teams && cdTarget.teams[0]) ? cdTarget.teams[0] : [];
+            var cdT2 = (cdTarget.teams && cdTarget.teams[1]) ? cdTarget.teams[1] : cdT1;
+            var cdT3 = (cdTarget.teams && cdTarget.teams[2]) ? cdTarget.teams[2] : cdT1;
+
             respond({
-                player_id: 734,
-                server_id: 2,
+                player_id: cdTarget.player_id,
+                fighter_id: cdTarget.fighter_id,
+                server_id: cdTarget.server_id,
                 team_num: 3,
-                player_name: "Obito Lục Đạo",
-                player_lv: 98,
-                player_icon: 80110020,
-                def_heros_1: JSON.stringify(defHeros1),
-                def_heros_2: JSON.stringify(defHeros2),
-                def_heros_3: JSON.stringify(defHeros3),
-                player: { player_id: 734, player_name: "Obito Lục Đạo", server_id: 2, rank: 2, score: 2050, icon: 11050, team_lv: 98 },
-                heros: defHeros1
+                win_count: cdTarget.win_count,
+                rank: cdTarget.rank,
+                player_name: cdTarget.player_name,
+                player_lv: cdTarget.player_lv,
+                icon: cdTarget.icon,
+                fight_value: cdTarget.fight_value,
+                def_heros_1: JSON.stringify(cdT1),
+                def_heros_2: JSON.stringify(cdT2),
+                def_heros_3: JSON.stringify(cdT3)
             });
             return true;
         }
 
         if (cmd === "CrossSetDarkArenaLineup" || cmd === SVRCMD.CrossSetDarkArenaLineup) {
-            if (params && params.length >= 2) {
-                if (!this.data.cross_dark_lineups) this.data.cross_dark_lineups = {};
-                for (var li = 1; li < params.length; li++) {
-                    if (params[li]) this.data.cross_dark_lineups[li] = String(params[li]);
-                }
+            var cdSetType = (params && params[0] !== undefined) ? Number(params[0]) : 1;
+            var cdOwnMap = this.data.heros || {};
+            var cleanCdTeam = function (raw) {
+                return parseHeroIdInput(raw).filter(function (id) { return !!cdOwnMap[id]; }).slice(0, 5).join(",");
+            };
+            var cs1 = (params && params.length >= 2) ? cleanCdTeam(params[1]) : "";
+            var cs2 = (params && params.length >= 3) ? cleanCdTeam(params[2]) : "";
+            var cs3 = (params && params.length >= 4) ? cleanCdTeam(params[3]) : "";
+            if (cdSetType === 2) {
+                this.data.cross_dark_def_1 = cs1;
+                this.data.cross_dark_def_2 = cs2;
+                this.data.cross_dark_def_3 = cs3;
+                this.data.cross_dark_lineups = { 1: cs1, 2: cs2, 3: cs3 };
+            } else {
+                this.data.cross_dark_atk_1 = cs1;
+                this.data.cross_dark_atk_2 = cs2;
+                this.data.cross_dark_atk_3 = cs3;
             }
             this.save();
             respond({ status: 1 });
@@ -2271,58 +3029,110 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "CrossDarkArenaFight" || cmd === SVRCMD.CrossDarkArenaFight) {
-            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            if (myHeroIds.length === 0) myHeroIds = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
-            var atk1 = myHeroIds.slice(0, 5).map(function (hid) { return self.computeHeroPayload(hid); });
-            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function (hid) { return self.computeHeroPayload(hid); });
-            var atk3 = (myHeroIds.slice(10, 15).length > 0 ? myHeroIds.slice(10, 15) : myHeroIds.slice(0, 5)).map(function (hid) { return self.computeHeroPayload(hid); });
-            var def1 = [10020, 10030, 10040, 10050, 10010].map(function (hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
-            var def2 = [10060, 10070, 10080, 10090, 10100].map(function (hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
-            var def3 = [10110, 10120, 10130, 10140, 10150].map(function (hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
-            var sim1 = simulateArenaBattle(atk1, def1);
-            var sim2 = simulateArenaBattle(atk2, def2);
-            var sim3 = simulateArenaBattle(atk3, def3);
+            resetDailyArenaCountersIfNeeded(this.data, "cross_dark");
+            var cdFightNow = Math.floor(Date.now() / 1000);
+            var cdFightPid = (params && params[1] !== undefined) ? Number(params[1]) : Number((params && params[0]) || 0);
+            var cdFightKey = this.getNumericId() + "_cross_dark";
+            var cdOpps = _cachedMatchups[cdFightKey] || buildOpponentMatchups(this, "cross_dark", Number(this.data.cross_dark_rank || 10), 3, { rotate: false, isCross: true });
+            var cdOpp = findCachedOpponent(this, "cross_dark", cdFightPid) || cdOpps[0];
+
+            var cdHasAtk = (
+                this.data.cross_dark_atk_1 !== undefined ||
+                this.data.cross_dark_atk_2 !== undefined ||
+                this.data.cross_dark_atk_3 !== undefined
+            );
+            var cdAtkIds = cdHasAtk
+                ? [parseHeroIdInput(this.data.cross_dark_atk_1), parseHeroIdInput(this.data.cross_dark_atk_2), parseHeroIdInput(this.data.cross_dark_atk_3)]
+                : resolveMultiTeamLineups(this, [this.data.cross_dark_def_1, this.data.cross_dark_def_2, this.data.cross_dark_def_3], 3, 5);
+            var atk1 = cdAtkIds[0].map(function (hid) { return self.computeHeroPayload(hid); });
+            var atk2 = cdAtkIds[1].map(function (hid) { return self.computeHeroPayload(hid); });
+            var atk3 = cdAtkIds[2].map(function (hid) { return self.computeHeroPayload(hid); });
+
+            var def1 = (cdOpp && cdOpp.teams && cdOpp.teams[0]) ? cdOpp.teams[0] : [];
+            var def2 = (cdOpp && cdOpp.teams && cdOpp.teams[1]) ? cdOpp.teams[1] : def1;
+            var def3 = (cdOpp && cdOpp.teams && cdOpp.teams[2]) ? cdOpp.teams[2] : def1;
+
+            var sim1 = atk1.length > 0 ? simulateArenaBattle(atk1, def1, 1001 + Math.floor(Math.random() * 10000)) : { isWin: false, replay: "" };
+            var sim2 = atk2.length > 0 ? simulateArenaBattle(atk2, def2, 2001 + Math.floor(Math.random() * 10000)) : { isWin: false, replay: "" };
+            var sim3 = atk3.length > 0 ? simulateArenaBattle(atk3, def3, 3001 + Math.floor(Math.random() * 10000)) : { isWin: false, replay: "" };
             var winCount = (sim1.isWin ? 1 : 0) + (sim2.isWin ? 1 : 0) + (sim3.isWin ? 1 : 0);
             var isWin = winCount >= 2 ? 1 : 0;
+
+            this.data.cross_dark_fight_count = Number(this.data.cross_dark_fight_count || 0) + 1;
+            this.data.cross_dark_last_fight_time = cdFightNow;
+            var oldCdRank = Number(this.data.cross_dark_rank || 10);
             if (isWin === 1) {
-                this.data.cross_dark_rank = 1;
+                this.data.cross_dark_rank = (cdOpp && cdOpp.rank > 0 && cdOpp.rank < oldCdRank) ? Number(cdOpp.rank) : Math.max(1, oldCdRank - 1);
+                this.data.cross_dark_win_count = Number(this.data.cross_dark_win_count || 0) + 1;
                 this.data.cross_dark_score = Number(this.data.cross_dark_score || 1500) + 25;
                 this.data.cross_dark_record_point = Number(this.data.cross_dark_record_point || 0) + 50;
                 this.addCurrency(13, 120, queuePush);
                 this.addCurrency(14, 120, queuePush);
             }
+            if (!Array.isArray(this.data.cross_dark_history)) this.data.cross_dark_history = [];
+            this.data.cross_dark_history.unshift({
+                time: cdFightNow,
+                is_win: isWin,
+                target_name: cdOpp ? cdOpp.player_name : "Đối Thủ LSV",
+                server_id: cdOpp ? cdOpp.server_id : 2,
+                rank_change: isWin ? Math.max(0, oldCdRank - Number(this.data.cross_dark_rank || 1)) : 0,
+                score_change: isWin ? 25 : 0
+            });
+            if (this.data.cross_dark_history.length > 20) this.data.cross_dark_history.length = 20;
             this.save();
 
             respond({
                 useZip: false,
                 isWin: isWin,
                 rank: Number(this.data.cross_dark_rank || 1),
-                score: this.data.cross_dark_score,
-                fightData1: JSON.stringify(sim1.replay),
-                fightData2: JSON.stringify(sim2.replay),
-                fightData3: JSON.stringify(sim3.replay)
+                score: Number(this.data.cross_dark_score || 1500),
+                fightCount: Number(this.data.cross_dark_fight_count || 0),
+                lastFightTime: cdFightNow,
+                fightData1: sim1.replay ? JSON.stringify(sim1.replay) : "",
+                fightData2: sim2.replay ? JSON.stringify(sim2.replay) : "",
+                fightData3: sim3.replay ? JSON.stringify(sim3.replay) : ""
             });
             return true;
         }
 
-        if (cmd === "CrossReceiceDarkArenaRecordPoint") {
-            var bonusKC = 200;
-            this.addStone(bonusKC, queuePush);
-            this.data.cross_dark_record_point = 0;
-            respond({ status: 1, diamond: bonusKC });
+        if (cmd === "CrossReceiceDarkArenaRecordPoint" || cmd === "CrossReceiceArenaRecordPoint") {
+            var isCdRec = (cmd === "CrossReceiceDarkArenaRecordPoint");
+            var ptsRec = isCdRec
+                ? Number(this.data.cross_dark_record_point || 0)
+                : Number(this.data.cross_arena_record_point || 0);
+            if (ptsRec > 0) {
+                this.addCurrency(13, ptsRec, queuePush);
+                if (isCdRec) this.data.cross_dark_record_point = 0;
+                else this.data.cross_arena_record_point = 0;
+                this.save();
+            }
+            respond({ point: ptsRec, status: 1, total_point: 0, left_point: 0 });
             return true;
         }
 
         if (cmd === "CrossDarkArenaFightHistory") {
             respond({
-                history: [
-                    { time: Math.floor(Date.now() / 1000) - 200, is_win: 1, target_name: "Obito Lục Đạo", server_id: 2, rank_change: 1, score_change: 25 }
-                ]
+                history: Array.isArray(this.data.cross_dark_history) ? this.data.cross_dark_history : []
             });
             return true;
         }
 
         if (cmd === "CrossClearArenaFightCD" || cmd === "CrossClearDarkArenaFightCD") {
+            var isCrossDarkCD = (cmd === "CrossClearDarkArenaFightCD");
+            var cCdVar = isCrossDarkCD ? "CS_DARK_ARENA_CD_COST_STONE" : "CS_ARENA_CD_COST_STONE";
+            var cCdDefault = isCrossDarkCD ? 100 : 50;
+            var cCdCost = (typeof Config !== "undefined" && Config.global_var && Config.global_var[cCdVar])
+                ? Number(Config.global_var[cCdVar])
+                : cCdDefault;
+            if (cCdCost > 0) {
+                if (!this.canDeductStone(cCdCost)) {
+                    return respond({}, { code: 1, msg: "Không đủ Kim Cương để xóa hồi chiêu!" }), true;
+                }
+                this.deductStone(cCdCost, queuePush);
+            }
+            if (isCrossDarkCD) this.data.cross_dark_last_fight_time = 0;
+            else this.data.cross_arena_last_fight_time = 0;
+            this.save();
             respond({ status: 1 });
             return true;
         }
