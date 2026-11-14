@@ -41,7 +41,7 @@ function saveArenaReplays() {
         var dir = path.dirname(REPLAY_DB_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(REPLAY_DB_FILE, JSON.stringify(_arenaReplays), "utf8");
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function storeArenaReplay(replayId, playerId, targetId, isWin, fightData) {
@@ -83,6 +83,9 @@ function getHeroSkillIds(heroOrId) {
     if (typeof Config !== "undefined" && Config.hero && Config.hero[hid]) {
         var hCfg = Config.hero[hid];
         var defaultLv = (hObj && (hObj.lv || hObj.level)) ? Number(hObj.lv || hObj.level) : 80;
+        if (Config.skill && Config.skill[hid]) {
+            sks.push({ id: hid, lv: 1, status: 0 });
+        }
         for (var k = 1; k <= 4; k++) {
             var skid = hCfg["skill_id_" + k] || hCfg["skill_" + k];
             if (skid && Config.skill && Config.skill[skid]) {
@@ -102,7 +105,7 @@ function writeHeroToBuffer(pw, uid, heroOrId) {
     var hObj = (typeof heroOrId === "object" && heroOrId) ? heroOrId : null;
     var lv = (hObj && (hObj.lv || hObj.level)) ? Number(hObj.lv || hObj.level) : 80;
     var quality = (hObj && hObj.quality) ? Number(hObj.quality) : 10;
-    
+
     // Đảm bảo quality tồn tại trong Config.heroQuality cho hero hid
     if (typeof Config !== "undefined" && Config.heroQuality) {
         var foundQ = false;
@@ -122,9 +125,12 @@ function writeHeroToBuffer(pw, uid, heroOrId) {
     var def = (hObj && hObj.def) ? Number(hObj.def) : 2000;
     var mp = (hObj && hObj.mp) ? Number(hObj.mp) : 5000;
     var mpDef = (hObj && hObj.mp_def) ? Number(hObj.mp_def) : 2000;
-    var cri = (hObj && hObj.cri !== undefined) ? Math.round(Number(hObj.cri) * 100) : 2000;
-    var mpCri = (hObj && hObj.mp_cri !== undefined) ? Math.round(Number(hObj.mp_cri) * 100) : 2000;
+    var cri = (hObj && hObj.cri !== undefined) ? Math.round(Number(hObj.cri) * 100) : 10;
+    var mpCri = (hObj && hObj.mp_cri !== undefined) ? Math.round(Number(hObj.mp_cri) * 100) : 10;
     var hasAwake = (hObj && hObj.has_awake) ? Number(hObj.has_awake) : (quality >= 11 ? 1 : 0);
+    var atkSpeed = (typeof Config !== "undefined" && Config.hero && Config.hero[hid] && Config.hero[hid].speed)
+        ? Number(Config.hero[hid].speed)
+        : 7;
 
     var sks = getHeroSkillIds(heroOrId);
     pw.appendInt(uid);
@@ -136,14 +142,14 @@ function writeHeroToBuffer(pw, uid, heroOrId) {
     pw.appendInt(atk);                    // physicDmg
     pw.appendInt(def);                    // physicDef
     pw.appendInt(cri);                    // physicCirt * 100
-    pw.appendInt(100);                    // power
-    pw.appendInt(1000);                   // maxPower
+    pw.appendInt(0);                      // power
+    pw.appendInt(100);                    // maxPower
     pw.appendInt(mp);                     // magicDmg
     pw.appendInt(mpDef);                  // magicDef
     pw.appendInt(mpCri);                  // magicCirt * 100
     pw.appendInt(300);                    // moveSpeed
     pw.appendInt(150);                    // attackRange
-    pw.appendInt(100);                    // attackSpeed
+    pw.appendInt(atkSpeed);               // attackSpeed
     pw.appendInt(10);                     // powerSpeed
     pw.appendInt(0);                      // randomsRec.length
     pw.appendByte(sks.length);
@@ -157,32 +163,89 @@ function writeHeroToBuffer(pw, uid, heroOrId) {
 
 function generateCompetentHeroRecord(hid, level, quality, star) {
     hid = Number(hid);
-    level = Number(level || 80);
-    quality = Number(quality || 10);
-    star = Number(star || 4);
+    level = Math.max(1, Number(level || 80));
+    quality = Math.max(1, Number(quality || 10));
+    star = Math.max(1, Number(star || 4));
     if (typeof Config !== "undefined" && Config.hero && Config.hero[hid] && Config.hero[hid].star) {
         star = Math.max(star, Number(Config.hero[hid].star));
     }
 
-    var qCfg = (typeof Config !== "undefined" && Config.heroQuality && Config.heroQuality[String(quality)] && Config.heroQuality[String(quality)][String(hid)]) || {};
+    var qVal = quality;
+    var qCfg = {};
+    if (typeof Config !== "undefined" && Config.heroQuality) {
+        for (var q = quality; q >= 1; q--) {
+            if (Config.heroQuality[String(q)] && Config.heroQuality[String(q)][String(hid)]) {
+                qVal = q;
+                qCfg = Config.heroQuality[String(q)][String(hid)];
+                break;
+            }
+        }
+    }
 
+    var bagateLv = Math.min(8, Math.floor(level / 12));
+    var hp = Number(qCfg.hp || 150) + (level - 1) * Number(qCfg.hp_inc || 15);
+    var atk = Number(qCfg.atk || 20) + (level - 1) * Number(qCfg.atk_inc || 3);
+    var def = Number(qCfg.def || 5) + (level - 1) * Number(qCfg.def_inc || 1);
+    var mp = Number(qCfg.mp || 15) + (level - 1) * Number(qCfg.mp_inc || 3);
+    var mpDef = Number(qCfg.mpdef || 5) + (level - 1) * Number(qCfg.mpdef_inc || 1);
+    var cri = Number(qCfg.cri || 0.05);
+    var mpCri = Number(qCfg.mp_cri || 0.05);
+
+    if (typeof Config !== "undefined" && Config.equip) {
+        for (var s = 1; s <= 6; s++) {
+            var eqId = qCfg["equip_" + s];
+            var eqCfg = eqId ? Config.equip[eqId] : null;
+            if (eqCfg) {
+                hp += Number(eqCfg.hp || 0);
+                atk += Number(eqCfg.atk || 0);
+                def += Number(eqCfg.def || 0);
+                mp += Number(eqCfg.mp || 0);
+                mpDef += Number(eqCfg.mpdef || 0);
+                cri += Number(eqCfg.cri || 0);
+                mpCri += Number(eqCfg.mp_cri || 0);
+            }
+        }
+    }
+
+    if (bagateLv > 0 && typeof Config !== "undefined" && Config.bamen) {
+        for (var g = 1; g <= bagateLv; g++) {
+            var gCfg = Config.bamen[g];
+            if (gCfg) {
+                hp += Number(gCfg.hp || 0);
+                atk += Number(gCfg.atk || 0);
+                def += Number(gCfg.def || 0);
+                mp += Number(gCfg.chak || 0);
+                mpDef += Number(gCfg.chadef || 0);
+            }
+        }
+    }
+
+    var finalHp = Math.max(150, Math.floor(hp));
     return {
         id: hid,
         hero_id: hid,
         lv: level,
         level: level,
         exp: 0,
-        quality: quality,
+        quality: qVal,
         star: star,
         status: 0,
-        has_awake: (quality >= 11) ? 1 : 0,
-        bagate_level: Math.min(8, Math.floor(level / 12)),
-        equip_1: qCfg.equip_1 ? 1 : 1,
-        equip_2: qCfg.equip_2 ? 1 : 1,
-        equip_3: qCfg.equip_3 ? 1 : 1,
-        equip_4: qCfg.equip_4 ? 1 : 1,
-        equip_5: qCfg.equip_5 ? 1 : 1,
-        equip_6: qCfg.equip_6 ? 1 : 1,
+        has_awake: (qVal >= 11) ? 1 : 0,
+        bagate_level: bagateLv,
+        hp: finalHp,
+        maxhp: finalHp,
+        atk: Math.max(20, Math.floor(atk)),
+        def: Math.max(5, Math.floor(def)),
+        mp: Math.max(15, Math.floor(mp)),
+        mp_def: Math.max(5, Math.floor(mpDef)),
+        cri: Number(cri.toFixed(2)),
+        mp_cri: Number(mpCri.toFixed(2)),
+        equip_1: 1,
+        equip_2: 1,
+        equip_3: 1,
+        equip_4: 1,
+        equip_5: 1,
+        equip_6: 1,
         ninja_tool_1: 0,
         ninja_tool_2: 0,
         ninja_tool_3: 0,
@@ -190,12 +253,18 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
         ninja_tool_5: 0,
         ninja_tool_6: 0,
         skill_1_lv: level,
-        skill_2_lv: level,
-        skill_3_lv: Math.max(1, level - 20),
-        skill_4_lv: Math.max(1, level - 40),
-        skill_5_lv: (quality >= 11) ? Math.max(1, level - 50) : 0,
-        skill_6_lv: 0,
-        skill_7_lv: 0,
+        skill_2_lv: qVal >= 2 ? level : 0,
+        skill_3_lv: qVal >= 4 ? Math.max(1, level - 20) : 0,
+        skill_4_lv: qVal >= 7 ? Math.max(1, level - 40) : 0,
+        skill_5_lv: (qVal >= 11) ? Math.max(1, level - 50) : 0,
+        skill_6_lv: (qVal >= 13) ? level : 0,
+        skill_7_lv: (qVal >= 14) ? level : 0,
+        skill_8_lv: (qVal >= 15) ? Math.max(1, level - 20) : 0,
+        skill_9_lv: (qVal >= 16) ? Math.max(1, level - 40) : 0,
+        skill_10_lv: (qVal >= 17) ? Math.max(1, level - 50) : 0,
+        skill_11_lv: level,
+        skill_12_lv: level,
+        sel_tf_skill: 0,
         secret_1_id: 0, secret_1_lv: 0,
         secret_2_id: 0, secret_2_lv: 0,
         secret_3_id: 0, secret_3_lv: 0,
@@ -207,16 +276,19 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
 
 function simulateArenaBattle(atkHeros, defHeros, seed) {
     seed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 900000) + 100000;
+    if (typeof battleSimulator.simulateBattleFromHeroes === "function") {
+        return battleSimulator.simulateBattleFromHeroes(atkHeros, defHeros, seed);
+    }
     var pw = new PackageWriter();
     pw.appendShort(0);
     pw.appendByte(0);
     pw.appendByte(atkHeros.length);
     for (var i = 0; i < atkHeros.length; i++) {
-        writeHeroToBuffer(pw, 1000 + i, atkHeros[i]);
+        writeHeroToBuffer(pw, i + 1, atkHeros[i]);
     }
     pw.appendByte(defHeros.length);
     for (var j = 0; j < defHeros.length; j++) {
-        writeHeroToBuffer(pw, 2000 + j, defHeros[j]);
+        writeHeroToBuffer(pw, 6 + j, defHeros[j]);
     }
     pw.appendByte(0);
     var bmStr = pw.getPackage().join(",");
@@ -256,7 +328,7 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
         { x: 335, y: 75 },
         { x: 240, y: 150 },
         { x: 145, y: 75 },
-        { x: 50,  y: 150 }
+        { x: 50, y: 150 }
     ];
     var dplace = [
         { x: 1490, y: 151 },
@@ -273,7 +345,7 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
         var heroHp = (typeof hEntry === "object" && hEntry && (hEntry.hp || hEntry.maxhp)) ? Number(hEntry.hp || hEntry.maxhp) : 100000;
         var startPt = aplace[i] || { x: 300 + i * 35, y: 120 + (i % 3) * 35 };
         var targetX = 850 - (i % 3) * 40;
-        
+
         // Chọn kỹ năng hợp lệ có animation
         var castableSkills = [hid]; // Basic attack always has animation
         if (typeof Config !== "undefined" && Config.hero && Config.hero[hid]) {
@@ -378,8 +450,8 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
 
         // Đánh nhau định kỳ sau khi chạm trán (mỗi 400ms)
         if (t >= clashTime && (t % 400 === 0) && t < maxframetime - 1200) {
-            var livingAtk = atkUnits.filter(function(u) { return u.hp > 0; });
-            var livingDef = defUnits.filter(function(u) { return u.hp > 0; });
+            var livingAtk = atkUnits.filter(function (u) { return u.hp > 0; });
+            var livingDef = defUnits.filter(function (u) { return u.hp > 0; });
 
             if (livingAtk.length > 0 && livingDef.length > 0) {
                 var aUnit = livingAtk[Math.floor(Math.random() * livingAtk.length)];
@@ -456,9 +528,9 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
 
         if (t >= maxframetime - 1500) {
             if (isWin) {
-                defUnits.forEach(function(u) { u.hp = 0; });
+                defUnits.forEach(function (u) { u.hp = 0; });
             } else {
-                atkUnits.forEach(function(u) { u.hp = 0; });
+                atkUnits.forEach(function (u) { u.hp = 0; });
             }
         }
 
@@ -478,7 +550,7 @@ function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) 
 }
 
 const ArenaAndTowerHandler = {
-    handleArenaAndTowerCommand: function(cmd, params, respond, queuePush) {
+    handleArenaAndTowerCommand: function (cmd, params, respond, queuePush) {
         var self = this;
 
         if (cmd === SVRCMD.BeforeNoEndTowerFight) {
@@ -596,7 +668,7 @@ const ArenaAndTowerHandler = {
             curLData.has_pass = 1;
 
             // Thiết lập 4 rương quà hợp lệ từ Config.box_drop nếu chưa có
-            var pickDrop = function(boxId, defaultItem) {
+            var pickDrop = function (boxId, defaultItem) {
                 if (typeof Config !== "undefined" && Config.box_drop && Config.box_drop[boxId]) {
                     var pool = Object.keys(Config.box_drop[boxId]);
                     if (pool.length > 0) {
@@ -1053,7 +1125,7 @@ const ArenaAndTowerHandler = {
         if (cmd === "LimitedArenaFight") {
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
             if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
-            var atkHeros = myHeroIds.slice(0, 5).map(function(hid) { return self.computeHeroPayload(hid); });
+            var atkHeros = myHeroIds.slice(0, 5).map(function (hid) { return self.computeHeroPayload(hid); });
             var defHeros = [
                 generateCompetentHeroRecord(10020, 80, 10, 4),
                 generateCompetentHeroRecord(10040, 80, 10, 4),
@@ -1323,7 +1395,7 @@ const ArenaAndTowerHandler = {
             // Lấy danh sách tướng tấn công do người chơi chọn (params[2] e.g. "10020,10010,10030...")
             var myHeroIds = [];
             if (params && params[2] && typeof params[2] === "string") {
-                myHeroIds = params[2].split(",").map(Number).filter(function(n) { return n > 0; });
+                myHeroIds = params[2].split(",").map(Number).filter(function (n) { return n > 0; });
             }
             if (myHeroIds.length === 0) {
                 myHeroIds = Object.keys(this.data.heros || {}).map(Number);
@@ -1333,7 +1405,7 @@ const ArenaAndTowerHandler = {
             }
 
             // Lấy thông tin thật từ tài khoản người chơi cho các hero được chọn
-            var myHeroPayloads = myHeroIds.map(function(hid) {
+            var myHeroPayloads = myHeroIds.map(function (hid) {
                 return self.computeHeroPayload(hid);
             });
 
@@ -1552,7 +1624,7 @@ const ArenaAndTowerHandler = {
 
         if (cmd === SVRCMD.DarkArenaInfo) {
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            myHeroIds.sort(function(a, b) {
+            myHeroIds.sort(function (a, b) {
                 var ha = self.data.heros[a];
                 var hb = self.data.heros[b];
                 var pwa = Number((ha && ha.power) || (ha && ha.level * 100) || 0);
@@ -1579,9 +1651,9 @@ const ArenaAndTowerHandler = {
                 this.data.dark_arena_lineup_3 = f3.join(",");
                 this.save();
             }
-            var defHeros1 = f1.map(function(hid) { return self.computeHeroPayload(hid); });
-            var defHeros2 = f2.map(function(hid) { return self.computeHeroPayload(hid); });
-            var defHeros3 = f3.map(function(hid) { return self.computeHeroPayload(hid); });
+            var defHeros1 = f1.map(function (hid) { return self.computeHeroPayload(hid); });
+            var defHeros2 = f2.map(function (hid) { return self.computeHeroPayload(hid); });
+            var defHeros3 = f3.map(function (hid) { return self.computeHeroPayload(hid); });
 
             var nowSec = Math.floor(Date.now() / 1000);
             var lastTime = Number(this.data.dark_arena_last_point_time || nowSec);
@@ -1784,7 +1856,7 @@ const ArenaAndTowerHandler = {
                 awardedItemIds: [60010, 10210, 40010],
                 gold: 50000,
                 items: lootItems,
-                itemBalances: lootItems.map(function(it) {
+                itemBalances: lootItems.map(function (it) {
                     var curCnt = self.getItemAmount(it.item_id);
                     return { id: it.item_id, item_id: it.item_id, count: curCnt, amount: curCnt };
                 })
@@ -2026,8 +2098,8 @@ const ArenaAndTowerHandler = {
         if (cmd === "CrossArenaFight" || cmd === SVRCMD.CrossArenaFight) {
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
             if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
-            var atk1 = myHeroIds.slice(0, 5).map(function(hid) { return self.computeHeroPayload(hid); });
-            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function(hid) { return self.computeHeroPayload(hid); });
+            var atk1 = myHeroIds.slice(0, 5).map(function (hid) { return self.computeHeroPayload(hid); });
+            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function (hid) { return self.computeHeroPayload(hid); });
             var def1 = [generateCompetentHeroRecord(11060, 85, 12, 5), generateCompetentHeroRecord(11000, 85, 12, 5), generateCompetentHeroRecord(10510, 85, 12, 5)];
             var def2 = [generateCompetentHeroRecord(10650, 85, 12, 5), generateCompetentHeroRecord(10710, 85, 12, 5), generateCompetentHeroRecord(10020, 85, 12, 5)];
             var sim1 = simulateArenaBattle(atk1, def1);
@@ -2201,12 +2273,12 @@ const ArenaAndTowerHandler = {
         if (cmd === "CrossDarkArenaFight" || cmd === SVRCMD.CrossDarkArenaFight) {
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
             if (myHeroIds.length === 0) myHeroIds = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
-            var atk1 = myHeroIds.slice(0, 5).map(function(hid) { return self.computeHeroPayload(hid); });
-            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function(hid) { return self.computeHeroPayload(hid); });
-            var atk3 = (myHeroIds.slice(10, 15).length > 0 ? myHeroIds.slice(10, 15) : myHeroIds.slice(0, 5)).map(function(hid) { return self.computeHeroPayload(hid); });
-            var def1 = [10020, 10030, 10040, 10050, 10010].map(function(hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
-            var def2 = [10060, 10070, 10080, 10090, 10100].map(function(hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
-            var def3 = [10110, 10120, 10130, 10140, 10150].map(function(hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
+            var atk1 = myHeroIds.slice(0, 5).map(function (hid) { return self.computeHeroPayload(hid); });
+            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function (hid) { return self.computeHeroPayload(hid); });
+            var atk3 = (myHeroIds.slice(10, 15).length > 0 ? myHeroIds.slice(10, 15) : myHeroIds.slice(0, 5)).map(function (hid) { return self.computeHeroPayload(hid); });
+            var def1 = [10020, 10030, 10040, 10050, 10010].map(function (hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
+            var def2 = [10060, 10070, 10080, 10090, 10100].map(function (hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
+            var def3 = [10110, 10120, 10130, 10140, 10150].map(function (hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
             var sim1 = simulateArenaBattle(atk1, def1);
             var sim2 = simulateArenaBattle(atk2, def2);
             var sim3 = simulateArenaBattle(atk3, def3);
