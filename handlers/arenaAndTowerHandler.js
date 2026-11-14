@@ -3,6 +3,68 @@
 // (Arena, DarkArena, LimitedArena, Tower, NoEndTower, NinjaFight/Expedition, Treasure/Mining, CrossServer Boss/Arena/DarkArena)
 // ============================================================================
 
+var fs = require("fs");
+var path = require("path");
+
+var REPLAY_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
+var REPLAY_DB_FILE = path.join(__dirname, "..", "data", "arena_replays.json");
+var _arenaReplays = {};
+
+function loadArenaReplays() {
+    try {
+        if (fs.existsSync(REPLAY_DB_FILE)) {
+            var raw = fs.readFileSync(REPLAY_DB_FILE, "utf8");
+            _arenaReplays = JSON.parse(raw || "{}") || {};
+        }
+    } catch (e) {
+        _arenaReplays = {};
+    }
+    purgeExpiredReplays();
+}
+
+function purgeExpiredReplays() {
+    var now = Date.now();
+    var changed = false;
+    for (var id in _arenaReplays) {
+        if (!_arenaReplays[id] || (now - (_arenaReplays[id].createdAt || 0)) > REPLAY_TTL_MS) {
+            delete _arenaReplays[id];
+            changed = true;
+        }
+    }
+    if (changed) saveArenaReplays();
+    return changed;
+}
+
+function saveArenaReplays() {
+    try {
+        var dir = path.dirname(REPLAY_DB_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(REPLAY_DB_FILE, JSON.stringify(_arenaReplays), "utf8");
+    } catch (e) {}
+}
+
+function storeArenaReplay(replayId, playerId, targetId, isWin, fightData) {
+    purgeExpiredReplays();
+    _arenaReplays[String(replayId)] = {
+        id: String(replayId),
+        playerId: playerId,
+        targetId: targetId,
+        isWin: isWin ? 1 : 0,
+        fight_data: fightData,
+        createdAt: Date.now()
+    };
+    saveArenaReplays();
+}
+
+function getArenaReplay(replayId) {
+    purgeExpiredReplays();
+    return _arenaReplays[String(replayId)] || null;
+}
+
+loadArenaReplays();
+setInterval(purgeExpiredReplays, 30 * 60 * 1000); // Auto-clean every 30 mins
+
+
 class PackageWriter {
     constructor() { this.buf = []; }
     appendByte(v) { this.buf.push(v & 0xFF); }
@@ -1269,37 +1331,61 @@ const ArenaAndTowerHandler = {
                 return true;
             } else {
                 var curRank = Number(this.data.arena_rank || 50);
-                var newRank = Math.max(1, curRank - 1);
-                this.data.arena_rank = newRank;
-                this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
                 var fightSeed = Math.floor(Math.random() * 900000) + 100000;
                 var atk1 = myHeroPayloads.slice(0, 5);
-                var fData = generateBattleReplayJson(atk1, defHeros1, true, 12, fightSeed);
-                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
-                this.save();
                 respond({
                     skipReply: false,
-                    isWin: 1,
+                    clientSim: true,
                     arena_request_id: reqId,
                     seed: fightSeed,
-                    fight_data: fData,
-                    rank: newRank,
-                    settled: true,
-                    reward: { gold: 50000, stone: 100 }
+                    targetFighterId: targetFighterId,
+                    atkHeros: atk1,
+                    defHeros: defHeros1,
+                    rank: curRank,
+                    settled: false
                 });
                 return true;
             }
         }
 
         if (cmd === SVRCMD.ArenaFightReport || cmd === SVRCMD.DarkArenaFightReport) {
+            var isWin = (params && params[1] !== undefined) ? Number(params[1]) : 1;
+            var fightData = (params && params[2]) ? params[2] : null;
+            var replayId = (params && params[3]) ? String(params[3]) : ("arena_" + Date.now() + "_" + Math.floor(Math.random() * 1000));
+            var targetId = (params && params[4]) ? Number(params[4]) : 101;
+
+            if (fightData) {
+                storeArenaReplay(replayId, this.data.id || 1, targetId, isWin, fightData);
+            }
+
+            var isDarkReport = (cmd === SVRCMD.DarkArenaFightReport);
+            var curRank = Number(isDarkReport ? (this.data.dark_arena_rank || 100) : (this.data.arena_rank || 50));
+            var newRank = curRank;
+            var rankChange = 0;
+            if (isWin === 1 && curRank > 1) {
+                newRank = curRank - 1;
+                rankChange = 1;
+            }
+            if (isDarkReport) {
+                this.data.dark_arena_rank = newRank;
+                this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
+                if (isWin === 1) this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
+            } else {
+                this.data.arena_rank = newRank;
+                this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
+            }
+            this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
             this.addStone(100, queuePush);
             this.addCurrency(10, 200, queuePush);
-            var isWin = (params && params[1] !== undefined) ? Number(params[1]) : 1;
+            this.save();
+
             respond({
                 status: 1,
                 isWin: isWin,
-                rankChange: 1,
-                bestRankChange: 1,
+                replayId: replayId,
+                rank: newRank,
+                rankChange: rankChange,
+                bestRankChange: rankChange,
                 stone: 100,
                 reward: { gold: 50000, stone: 100 }
             });
