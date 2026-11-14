@@ -138,7 +138,14 @@ function initSimContext() {
         },
         UBYTE_MAX: 256,
         USHORT_MAX: 65536,
-        UINT_MAX: 4294967296
+        UINT_MAX: 4294967296,
+        SKILLTYPE_PASSIVE: 1,
+        SKILLTYPE_DRIVING: 2,
+        SKILLTYPE_RATE: 3,
+        SKILLTYPE_COOLDOWN: 4,
+        SKILLTYPE_ONSTART: 5,
+        SKILLTYPE_CDRANDOMLINK: 6,
+        SKILLTYPE_SKILLLINK: 7
     };
     sandbox.window = sandbox;
     sandbox.global = sandbox;
