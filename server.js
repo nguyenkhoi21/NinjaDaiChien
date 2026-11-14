@@ -495,8 +495,7 @@ const server = http.createServer((req, res) => {
                     json.remoteVersionUrl = baseSelf + 'version.manifest';
                     if (isProject && json.assets) {
                         const protectedPrefixes = [
-                            'src/InitScene.', 'src/MainScene.', 'src/SdkManager.',
-                            'src/AssetsManager.', 'src/netWork/'
+                            'src/SdkManager.', 'src/AssetsManager.'
                         ];
                         for (const key of Object.keys(json.assets)) {
                             if (protectedPrefixes.some((p) => key.startsWith(p))) {
