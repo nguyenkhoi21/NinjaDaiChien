@@ -191,8 +191,55 @@ const ShopAndBoxHandler = {
         if (cmd === SVRCMD.ShopInfo || cmd === SVRCMD.RefreshShop) {
             var shopType = Number((params && params[0]) || 1);
             if (!this.data.shops) this.data.shops = {};
-            if (cmd === SVRCMD.RefreshShop || !this.data.shops[shopType] || !this.data.shops[shopType].info || Object.keys(this.data.shops[shopType].info).length === 0) {
+
+            // 1. Auto-reset shop theo khung giờ (09:00, 12:00, 18:00, 21:00)
+            var now = new Date();
+            var resetHours = [9, 12, 18, 21];
+            var slotDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            var matchedHour = -1;
+            for (var hi = 0; hi < resetHours.length; hi++) {
+                if (now.getHours() >= resetHours[hi]) matchedHour = resetHours[hi];
+            }
+            if (matchedHour === -1) {
+                slotDate.setDate(slotDate.getDate() - 1);
+                slotDate.setHours(resetHours[resetHours.length - 1], 0, 0, 0);
+            } else {
+                slotDate.setHours(matchedHour, 0, 0, 0);
+            }
+            var latestSlotTs = slotDate.getTime();
+
+            // 2. Reset giới hạn làm mới bằng kim cương khi qua ngày mới
+            var todayStr = now.getFullYear() + "-" + (now.getMonth() + 1) + "-" + now.getDate();
+            if (this.data.shop_refresh_date !== todayStr) {
+                this.data.shop_refresh_date = todayStr;
+                this.data.shop_refresh_counts = {};
+            }
+            if (!this.data.shop_refresh_counts) this.data.shop_refresh_counts = {};
+
+            var needInit = !this.data.shops[shopType] || !this.data.shops[shopType].info || Object.keys(this.data.shops[shopType].info).length === 0;
+            var needScheduledReset = !needInit && Number(this.data.shops[shopType].last_reset_slot || 0) < latestSlotTs;
+
+            if (cmd === SVRCMD.RefreshShop) {
+                var maxRefresh = 50; // 10kc -> 500kc (+10kc mỗi lần)
+                var usedRefresh = Number(this.data.shop_refresh_counts[shopType] || 0);
+                var refreshCost = (usedRefresh + 1) * 10;
+                if (usedRefresh >= maxRefresh || refreshCost > 500) {
+                    respond({ error: "Đã đạt giới hạn làm mới bằng kim cương hôm nay (tối đa 500 kim cương)" });
+                    return true;
+                }
+                if (Number(this.data.stone || 0) < refreshCost) {
+                    respond({ error: "Không đủ kim cương để làm mới shop (cần " + refreshCost + " kim cương)" });
+                    return true;
+                }
+                this.addStone(-refreshCost, queuePush);
+                this.data.shop_refresh_counts[shopType] = usedRefresh + 1;
                 this.data.shops[shopType] = this.generateShopData(shopType);
+                this.data.shops[shopType].last_reset_slot = latestSlotTs;
+                this.save();
+            } else if (needInit || needScheduledReset) {
+                this.data.shops[shopType] = this.generateShopData(shopType);
+                this.data.shops[shopType].last_reset_slot = latestSlotTs;
+                this.save();
             } else if (this.data.shops[shopType].discount_info && Object.keys(this.data.shops[shopType].discount_info).length > 0) {
                 // Clean up legacy discount_info = 10 that caused 10x prices
                 for (var dk in this.data.shops[shopType].discount_info) {
@@ -206,7 +253,9 @@ const ShopAndBoxHandler = {
                 playerShop: {
                     shop_type: shopType,
                     info: JSON.stringify(curShop.info || {}),
-                    discount_info: JSON.stringify(curShop.discount_info || {})
+                    discount_info: JSON.stringify(curShop.discount_info || {}),
+                    refresh_count: Number(this.data.shop_refresh_counts[shopType] || 0),
+                    max_refresh: 50
                 }
             });
             return true;
