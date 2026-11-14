@@ -5,6 +5,7 @@
 
 var fs = require("fs");
 var path = require("path");
+var battleSimulator = require("../services/battleSimulator");
 
 var REPLAY_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
 var REPLAY_DB_FILE = path.join(__dirname, "..", "data", "arena_replays.json");
@@ -202,6 +203,24 @@ function generateCompetentHeroRecord(hid, level, quality, star) {
         secret_5_id: 0, secret_5_lv: 0,
         secret_6_id: 0, secret_6_lv: 0
     };
+}
+
+function simulateArenaBattle(atkHeros, defHeros, seed) {
+    seed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 900000) + 100000;
+    var pw = new PackageWriter();
+    pw.appendShort(0);
+    pw.appendByte(0);
+    pw.appendByte(atkHeros.length);
+    for (var i = 0; i < atkHeros.length; i++) {
+        writeHeroToBuffer(pw, 1000 + i, atkHeros[i]);
+    }
+    pw.appendByte(defHeros.length);
+    for (var j = 0; j < defHeros.length; j++) {
+        writeHeroToBuffer(pw, 2000 + j, defHeros[j]);
+    }
+    pw.appendByte(0);
+    var bmStr = pw.getPackage().join(",");
+    return battleSimulator.simulateBattleFromBm(bmStr, seed);
 }
 
 function generateBattleReplayJson(atkHeros, defHeros, isWin, durationSec, seed) {
@@ -1032,15 +1051,29 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "LimitedArenaFight") {
-            this.data.lim_arena_rank = 1;
-            this.data.lim_arena_wins = Number(this.data.lim_arena_wins || 0) + 1;
-            this.changeItemAmount(10150, 50, queuePush);
+            var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
+            if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
+            var atkHeros = myHeroIds.slice(0, 5).map(function(hid) { return self.computeHeroPayload(hid); });
+            var defHeros = [
+                generateCompetentHeroRecord(10020, 80, 10, 4),
+                generateCompetentHeroRecord(10040, 80, 10, 4),
+                generateCompetentHeroRecord(10070, 80, 10, 4)
+            ];
+            var limSeed = Math.floor(Math.random() * 900000) + 100000;
+            var sim = simulateArenaBattle(atkHeros, defHeros, limSeed);
+            var isWin = sim.isWin ? 1 : 0;
+            if (isWin === 1) {
+                this.data.lim_arena_rank = 1;
+                this.data.lim_arena_wins = Number(this.data.lim_arena_wins || 0) + 1;
+                this.changeItemAmount(10150, 50, queuePush);
+            }
+            this.save();
             respond({
-                isWin: 1,
-                newRank: 1,
-                seed: 123456,
-                reward: { items: [{ type: 1, item_id: 10150, amount: 50 }] },
-                fight_data: ""
+                isWin: isWin,
+                newRank: Number(this.data.lim_arena_rank || 1),
+                seed: limSeed,
+                reward: isWin === 1 ? { items: [{ type: 1, item_id: 10150, amount: 50 }] } : {},
+                fight_data: JSON.stringify(sim.replay)
             });
             return true;
         }
@@ -1306,21 +1339,28 @@ const ArenaAndTowerHandler = {
 
             if (cmd === SVRCMD.DarkArenaFight) {
                 var curRank = Number(this.data.dark_arena_rank || 100);
-                var newRank = Math.max(1, curRank - 1);
-                this.data.dark_arena_rank = newRank;
-                this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
-                this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
                 var atk1 = myHeroPayloads.slice(0, 5);
                 var atk2 = myHeroPayloads.slice(5, 10).length > 0 ? myHeroPayloads.slice(5, 10) : atk1;
                 var atk3 = myHeroPayloads.slice(10, 15).length > 0 ? myHeroPayloads.slice(10, 15) : atk1;
-                var fData1 = generateBattleReplayJson(atk1, defHeros1, true, 12, 1001);
-                var fData2 = generateBattleReplayJson(atk2, defHeros2, true, 12, 1002);
-                var fData3 = generateBattleReplayJson(atk3, defHeros3, true, 12, 1003);
+                var sim1 = simulateArenaBattle(atk1, defHeros1, 1001 + Math.floor(Math.random() * 10000));
+                var sim2 = simulateArenaBattle(atk2, defHeros2, 2001 + Math.floor(Math.random() * 10000));
+                var sim3 = simulateArenaBattle(atk3, defHeros3, 3001 + Math.floor(Math.random() * 10000));
+                var winCount = (sim1.isWin ? 1 : 0) + (sim2.isWin ? 1 : 0) + (sim3.isWin ? 1 : 0);
+                var darkIsWin = winCount >= 2 ? 1 : 0;
+                var newRank = (darkIsWin === 1 && curRank > 1) ? curRank - 1 : curRank;
+                this.data.dark_arena_rank = newRank;
+                this.data.total_dark_arena_fights = Number(this.data.total_dark_arena_fights || 0) + 1;
+                if (darkIsWin === 1) this.data.dark_arena_win_count = Number(this.data.dark_arena_win_count || 0) + 1;
+                var fData1 = JSON.stringify(sim1.replay);
+                var fData2 = JSON.stringify(sim2.replay);
+                var fData3 = JSON.stringify(sim3.replay);
+                var darkReplayId = "dark_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+                storeArenaReplay(darkReplayId, this.data.id || 1, targetFighterId, darkIsWin, fData1);
                 this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
                 this.save();
                 respond({
                     useZip: false,
-                    isWin: 1,
+                    isWin: darkIsWin,
                     rank: newRank,
                     fightData1: fData1,
                     fightData2: fData2,
@@ -1333,16 +1373,30 @@ const ArenaAndTowerHandler = {
                 var curRank = Number(this.data.arena_rank || 50);
                 var fightSeed = Math.floor(Math.random() * 900000) + 100000;
                 var atk1 = myHeroPayloads.slice(0, 5);
+                var sim = simulateArenaBattle(atk1, defHeros1, fightSeed);
+                var isWin = sim.isWin ? 1 : 0;
+                var newRank = (isWin === 1 && curRank > 1) ? curRank - 1 : curRank;
+                var rankChange = (isWin === 1 && curRank > 1) ? 1 : 0;
+                this.data.arena_rank = newRank;
+                this.data.total_arena_fights = Number(this.data.total_arena_fights || 0) + 1;
+                this.data.daily_counts["PLAYER_DIALY_TASK_8"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_8"] || 0) + 1;
+                var fightDataStr = JSON.stringify(sim.replay);
+                var arenaReplayId = "arena_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+                storeArenaReplay(arenaReplayId, this.data.id || 1, targetFighterId, isWin, fightDataStr);
+                this.save();
                 respond({
                     skipReply: false,
-                    clientSim: true,
                     arena_request_id: reqId,
                     seed: fightSeed,
+                    isWin: isWin,
+                    replayId: arenaReplayId,
                     targetFighterId: targetFighterId,
-                    atkHeros: atk1,
-                    defHeros: defHeros1,
-                    rank: curRank,
-                    settled: false
+                    fight_data: fightDataStr,
+                    rank: newRank,
+                    rankChange: rankChange,
+                    bestRankChange: rankChange,
+                    settled: true,
+                    reward: { gold: 50000, stone: 100 }
                 });
                 return true;
             }
@@ -1970,21 +2024,28 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "CrossArenaFight" || cmd === SVRCMD.CrossArenaFight) {
-            this.data.cross_arena_rank = 1;
-            this.data.cross_arena_score = Number(this.data.cross_arena_score || 1600) + 30;
-            this.addCurrency(10, 100, queuePush);
-
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
-            var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [11060, 11000, 10510], true, 6);
-            var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10650, 10710, 10020], true, 6);
-
+            if (myHeroIds.length === 0) myHeroIds = [10010, 10020, 10030, 10040, 10050];
+            var atk1 = myHeroIds.slice(0, 5).map(function(hid) { return self.computeHeroPayload(hid); });
+            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function(hid) { return self.computeHeroPayload(hid); });
+            var def1 = [generateCompetentHeroRecord(11060, 85, 12, 5), generateCompetentHeroRecord(11000, 85, 12, 5), generateCompetentHeroRecord(10510, 85, 12, 5)];
+            var def2 = [generateCompetentHeroRecord(10650, 85, 12, 5), generateCompetentHeroRecord(10710, 85, 12, 5), generateCompetentHeroRecord(10020, 85, 12, 5)];
+            var sim1 = simulateArenaBattle(atk1, def1);
+            var sim2 = simulateArenaBattle(atk2, def2);
+            var isWin = sim1.isWin ? 1 : 0;
+            if (isWin === 1) {
+                this.data.cross_arena_rank = 1;
+                this.data.cross_arena_score = Number(this.data.cross_arena_score || 1600) + 30;
+                this.addCurrency(10, 100, queuePush);
+            }
+            this.save();
             respond({
                 useZip: false,
-                isWin: 1,
-                rank: 1,
+                isWin: isWin,
+                rank: Number(this.data.cross_arena_rank || 1),
                 score: this.data.cross_arena_score,
-                fightData1: fData1,
-                fightData2: fData2
+                fightData1: JSON.stringify(sim1.replay),
+                fightData2: JSON.stringify(sim2.replay)
             });
             return true;
         }
@@ -2138,29 +2199,36 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "CrossDarkArenaFight" || cmd === SVRCMD.CrossDarkArenaFight) {
-            this.data.cross_dark_rank = 1;
-            this.data.cross_dark_score = Number(this.data.cross_dark_score || 1500) + 25;
-            this.data.cross_dark_record_point = Number(this.data.cross_dark_record_point || 0) + 50;
-            this.addCurrency(13, 120, queuePush);
-            this.addCurrency(14, 120, queuePush);
-
             var myHeroIds = Object.keys(this.data.heros || {}).map(Number);
             if (myHeroIds.length === 0) myHeroIds = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
-
-            var fData1 = generateBattleReplayJson(myHeroIds.slice(0, 5), [10020, 10030, 10040, 10050, 10010], true, 6);
-            var fData2 = generateBattleReplayJson(myHeroIds.slice(5, 10), [10060, 10070, 10080, 10090, 10100], true, 6);
-            var fData3 = generateBattleReplayJson(myHeroIds.slice(10, 15), [10110, 10120, 10130, 10140, 10150], true, 6);
-
+            var atk1 = myHeroIds.slice(0, 5).map(function(hid) { return self.computeHeroPayload(hid); });
+            var atk2 = (myHeroIds.slice(5, 10).length > 0 ? myHeroIds.slice(5, 10) : myHeroIds.slice(0, 5)).map(function(hid) { return self.computeHeroPayload(hid); });
+            var atk3 = (myHeroIds.slice(10, 15).length > 0 ? myHeroIds.slice(10, 15) : myHeroIds.slice(0, 5)).map(function(hid) { return self.computeHeroPayload(hid); });
+            var def1 = [10020, 10030, 10040, 10050, 10010].map(function(hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
+            var def2 = [10060, 10070, 10080, 10090, 10100].map(function(hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
+            var def3 = [10110, 10120, 10130, 10140, 10150].map(function(hid) { return generateCompetentHeroRecord(hid, 85, 12, 5); });
+            var sim1 = simulateArenaBattle(atk1, def1);
+            var sim2 = simulateArenaBattle(atk2, def2);
+            var sim3 = simulateArenaBattle(atk3, def3);
+            var winCount = (sim1.isWin ? 1 : 0) + (sim2.isWin ? 1 : 0) + (sim3.isWin ? 1 : 0);
+            var isWin = winCount >= 2 ? 1 : 0;
+            if (isWin === 1) {
+                this.data.cross_dark_rank = 1;
+                this.data.cross_dark_score = Number(this.data.cross_dark_score || 1500) + 25;
+                this.data.cross_dark_record_point = Number(this.data.cross_dark_record_point || 0) + 50;
+                this.addCurrency(13, 120, queuePush);
+                this.addCurrency(14, 120, queuePush);
+            }
             this.save();
 
             respond({
                 useZip: false,
-                isWin: 1,
-                rank: 1,
+                isWin: isWin,
+                rank: Number(this.data.cross_dark_rank || 1),
                 score: this.data.cross_dark_score,
-                fightData1: fData1,
-                fightData2: fData2,
-                fightData3: fData3
+                fightData1: JSON.stringify(sim1.replay),
+                fightData2: JSON.stringify(sim2.replay),
+                fightData3: JSON.stringify(sim3.replay)
             });
             return true;
         }
