@@ -206,6 +206,7 @@ function simulateBattleFromBm(bmStr, seed) {
     const finalReplay = bm.replaydata || mgr.replaydata || replay;
     const rawData = (finalReplay && finalReplay.data) ? finalReplay.data : {};
     const maxframetime = rawData.maxframetime || mgr.runtime || 12000;
+    console.log("[BattleSim] atk:", bm.attackGroup.length, "def:", bm.defenceGroup.length, "frames:", Object.keys(rawData).length, "maxframetime:", maxframetime, "isWin:", !!bm.result);
     const replayObj = Object.assign({}, rawData, {
         bm: bmStr,
         result: !!bm.result,
