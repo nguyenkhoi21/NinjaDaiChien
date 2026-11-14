@@ -198,6 +198,18 @@ function simulateBattleFromBm(bmStr, seed) {
     bm.replaydata = replay;
     bm.seed = seed || Math.floor(Math.random() * 900000) + 100000;
 
+    const ensureGroupHp = (grp) => {
+        if (!Array.isArray(grp)) return;
+        for (const u of grp) {
+            if (u && typeof u.getHp === "function" && u.getHp() <= 0) {
+                const maxHp = (u.hero && (u.hero.maxHp || u.hero.hp)) ? Number(u.hero.maxHp || u.hero.hp) : 100000;
+                u.setHp(Math.max(1000, maxHp));
+            }
+        }
+    };
+    ensureGroupHp(bm.attackGroup);
+    ensureGroupHp(bm.defenceGroup);
+
     const mgr = ctx.BattleManager.shared();
     mgr.openlog = false;
     mgr.beginWithModle(bm, true, bm.seed, null);
