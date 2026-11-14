@@ -204,17 +204,18 @@ function simulateBattleFromBm(bmStr, seed) {
     mgr.runOutBattle();
 
     const finalReplay = bm.replaydata || mgr.replaydata || replay;
-    const maxframetime = mgr.runtime || 12000;
+    const rawData = (finalReplay && finalReplay.data) ? finalReplay.data : {};
+    const maxframetime = rawData.maxframetime || mgr.runtime || 12000;
+    const replayObj = Object.assign({}, rawData, {
+        bm: bmStr,
+        result: !!bm.result,
+        seed: bm.seed,
+        arena_protocol: 2,
+        maxframetime: maxframetime
+    });
     return {
         isWin: !!bm.result,
-        replay: {
-            bm: bmStr,
-            result: !!bm.result,
-            seed: bm.seed,
-            arena_protocol: 2,
-            maxframetime: maxframetime,
-            d: finalReplay.data || {}
-        }
+        replay: replayObj
     };
 }
 
