@@ -200,9 +200,10 @@ function simulateBattleFromBm(bmStr, seed) {
 
     const mgr = ctx.BattleManager.shared();
     mgr.openlog = false;
-    mgr.beginWithModle(bm, null, bm.seed, null);
+    mgr.beginWithModle(bm, true, bm.seed, null);
     mgr.runOutBattle();
 
+    const finalReplay = bm.replaydata || mgr.replaydata || replay;
     const maxframetime = mgr.runtime || 12000;
     return {
         isWin: !!bm.result,
@@ -212,7 +213,7 @@ function simulateBattleFromBm(bmStr, seed) {
             seed: bm.seed,
             arena_protocol: 2,
             maxframetime: maxframetime,
-            d: replay.data || {}
+            d: finalReplay.data || {}
         }
     };
 }
