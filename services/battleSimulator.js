@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const http = require("http");
+const zlib = require("zlib");
 
 const CLIENT_BATTLE_DIR = path.join(__dirname, "..", "battle_engine", "modules", "battle");
 
@@ -129,6 +130,9 @@ function initSimContext() {
         SoundManager: { playEffect: function () { } },
         LANSTR: new Proxy({}, { get: function (_, k) { return String(k); } }),
         clearSkillCacheList: function () { },
+        zip_deflate: function (str) {
+            return zlib.deflateRawSync(Buffer.from(String(str), "utf8")).toString("base64");
+        },
         UBYTE_MAX: 256,
         USHORT_MAX: 65536,
         UINT_MAX: 4294967296
