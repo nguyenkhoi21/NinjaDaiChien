@@ -114,7 +114,7 @@ function initSimContext() {
         EventDispatcher: eventDispatcherShim,
         Config: global.Config || {},
         Cache: {
-            getServerTime: function () { return Date.now(); }
+            getServerTime: function () { return 0; }
         },
         gamePlayer: {
             heros: {},
