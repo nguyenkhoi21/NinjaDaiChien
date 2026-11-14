@@ -144,6 +144,16 @@ function initSimContext() {
     sandbox.global = sandbox;
 
     const ctx = vm.createContext(sandbox);
+    vm.runInContext(`
+        if (!Object.prototype.getValByKey) {
+            Object.defineProperty(Object.prototype, "getValByKey", {
+                value: function (k) { return this[k]; },
+                enumerable: false,
+                configurable: true,
+                writable: true
+            });
+        }
+    `, ctx);
 
     const baseModelFiles = [
         path.join(__dirname, "..", "battle_engine", "utils", "SCRandom.js"),
