@@ -480,6 +480,44 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (req.url === '/static/hotfix/android/version.manifest' || req.url === '/static/hotfix/android/project.manifest') {
+        const isProject = req.url.endsWith('project.manifest');
+        const upstreamUrl = 'http://103.90.227.124:8080' + req.url;
+        const host = req.headers.host || '127.0.0.1:8080';
+        const baseSelf = `http://${host}/static/hotfix/android/`;
+        http.get(upstreamUrl, (upRes) => {
+            let body = '';
+            upRes.on('data', (chunk) => { body += chunk; });
+            upRes.on('end', () => {
+                try {
+                    const json = JSON.parse(body);
+                    json.remoteManifestUrl = baseSelf + 'project.manifest';
+                    json.remoteVersionUrl = baseSelf + 'version.manifest';
+                    if (isProject && json.assets) {
+                        const protectedPrefixes = [
+                            'src/InitScene.', 'src/MainScene.', 'src/SdkManager.',
+                            'src/AssetsManager.', 'src/netWork/'
+                        ];
+                        for (const key of Object.keys(json.assets)) {
+                            if (protectedPrefixes.some((p) => key.startsWith(p))) {
+                                delete json.assets[key];
+                            }
+                        }
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(json));
+                } catch (e) {
+                    res.writeHead(502, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid upstream manifest' }));
+                }
+            });
+        }).on('error', () => {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Failed to fetch upstream manifest' }));
+        });
+        return;
+    }
+
     if (req.url === '/status' || req.url === '/api/status') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({

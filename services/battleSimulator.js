@@ -180,8 +180,12 @@ function initSimContext() {
 function simulateBattleFromBm(bmStr, seed) {
     const ctx = initSimContext();
     ctx.Config = global.Config || ctx.Config;
+    const BattleModleRef = ctx.BattleModle || (ctx.window && ctx.window.BattleModle);
+    if (!BattleModleRef || typeof BattleModleRef.getModleFromString !== "function") {
+        throw new Error("BattleModle is not initialized in battleSimulator context");
+    }
     const bmArr = bmStr.split(",");
-    const bm = ctx.BattleModle.getModleFromString(bmArr);
+    const bm = BattleModleRef.getModleFromString(bmArr);
     const replay = new ctx.ReplayData(bm);
     bm.replaydata = replay;
     bm.seed = seed || Math.floor(Math.random() * 900000) + 100000;
