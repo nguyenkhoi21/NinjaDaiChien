@@ -698,13 +698,17 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (api === 'get_server_list' || api === 'getserverlist') {
+                    const reqHost = process.env.PUBLIC_HOST || process.env.RENDER_EXTERNAL_HOSTNAME || (req.headers && req.headers.host) || "interchange.proxy.rlwy.net:19046";
+                    const hostParts = reqHost.split(':');
+                    const svrHost = hostParts[0];
+                    const svrPort = hostParts[1] ? Number(hostParts[1]) : 443;
                     return sendJson({
                         servers: [{
                             id: 1,
                             name: "Ninja Đại Chiến",
-                            serverip: "interchange.proxy.rlwy.net:19046/rpc",
-                            host: "interchange.proxy.rlwy.net",
-                            port: 19046,
+                            serverip: `${reqHost}/rpc`,
+                            host: svrHost,
+                            port: svrPort,
                             status: 1,
                             newer: 1,
                             hot: 1
