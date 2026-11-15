@@ -126,6 +126,75 @@ const GmAndChatHandler = {
                 chatType = (params[1] !== undefined) ? Number(params[1]) : 0;
             }
 
+            var trimmedCmd = String(msgText || "").trim();
+            var limCmdMatch = trimmedCmd.match(/^\/lim(?:\s+(.*))?$/i);
+            var towerCmdMatch = trimmedCmd.match(/^\/tower(?:\s+(.*))?$/i);
+            if (limCmdMatch || towerCmdMatch) {
+                var ArenaAndTowerHandler = require("./arenaAndTowerHandler");
+                var sysReply = "";
+                if (limCmdMatch) {
+                    var limRes = ArenaAndTowerHandler.setLimitedArenaThemeOverride(limCmdMatch[1] || "list");
+                    var act = limRes.active;
+                    if (limRes.action === "list") {
+                        sysReply = "[DT Giới Hạn] Hiện tại: [" + act.id + "] " + act.name + " (" + act.allowedIds.length + " ninja, " + (act.isManual ? "Ghim thủ công" : "Tự động theo tuần") + "). Dùng /lim <1-6|akatsuki|uchiha|kage|jinchuriki|konoha|allied|auto>";
+                    } else if (limRes.action === "set") {
+                        sysReply = "[DT Giới Hạn] Đã chuyển sang [" + act.id + "] " + act.name + " (" + act.allowedIds.length + " ninja hợp lệ). Hãy mở lại giao diện Đấu Trường Giới Hạn!";
+                    } else if (limRes.action === "auto") {
+                        sysReply = "[DT Giới Hạn] Đã bật xoay tua tự động theo tuần! Tuần này: [" + act.id + "] " + act.name + " (" + act.allowedIds.length + " ninja).";
+                    } else {
+                        sysReply = "[DT Giới Hạn] Sai cú pháp '" + String(limCmdMatch[1] || "") + "'. Dùng: /lim <1-6|akatsuki|uchiha|kage|jinchuriki|konoha|allied|auto>";
+                    }
+                } else {
+                    var tSub = String(towerCmdMatch[1] || "").trim().toLowerCase();
+                    var curTowerSched = ArenaAndTowerHandler.getTowerScheduleState(Date.now(), this.data);
+                    if (tSub === "reset") {
+                        this.data.tower_week_key = curTowerSched.weekKey;
+                        this.data.tower_daily_key = curTowerSched.dailyKey;
+                        this.data.tower_cur_layer = 1;
+                        this.data.tower_layers = {};
+                        this.data.tower_heros = {};
+                        delete this.data.tower_open_all_week;
+                        if (typeof this.save === "function") this.save();
+                        sysReply = "[Tháp] Đã reset Tháp Mất Tích về Tầng 1!";
+                    } else if (tSub === "openall") {
+                        this.data.tower_open_all_week = curTowerSched.weekKey;
+                        if (typeof this.save === "function") this.save();
+                        sysReply = "[Tháp] Đã mở khóa cả 35 tầng cho tuần " + curTowerSched.weekKey + "!";
+                    } else if (tSub === "daily") {
+                        this.data.tower_daily_key = curTowerSched.dailyKey;
+                        this.data.tower_heros = {};
+                        if (typeof this.save === "function") this.save();
+                        sysReply = "[Tháp] Đã reset HP & Nộ 05:00 cho toàn bộ Ninja (giữ nguyên tầng " + (this.data.tower_cur_layer || 1) + ")!";
+                    } else if (tSub === "bypass") {
+                        this.data.tower_bypass_reset_window = !this.data.tower_bypass_reset_window;
+                        if (typeof this.save === "function") this.save();
+                        sysReply = "[Tháp] Bỏ qua khóa 05:00-06:00 VN: " + (this.data.tower_bypass_reset_window ? "BẬT" : "TẮT");
+                    } else {
+                        sysReply = "[Tháp] Tầng: " + (this.data.tower_cur_layer || 1) + "/35 (Hôm nay mở tối đa: " + curTowerSched.dailyMax + "). Lệnh: /tower <reset|openall|daily|bypass>";
+                    }
+                }
+
+                var sysChatObj = {
+                    id: ++globalChatSeq,
+                    source_server: 1,
+                    player_id: 100,
+                    player_name: "[Hệ Thống]",
+                    player_icon: 10010,
+                    player_lv: 99,
+                    player_vip: 15,
+                    create_time: Math.floor(Date.now() / 1000),
+                    fight_record_id: 0,
+                    msg: sysReply,
+                    send_to: chatType === -2 ? this.getNumericId() : chatType,
+                    send_to_name: this.data.team_name || "",
+                    group_id: Number(this.data.group_id || 1)
+                };
+                globalChats.unshift(sysChatObj);
+                if (globalChats.length > 100) globalChats.pop();
+                respond({ chat: sysChatObj });
+                return true;
+            }
+
             var sendTo = (chatType === -2) ? (targetId > 0 ? targetId : 1) : chatType;
             var cId = ++globalChatSeq;
             var chatObj = {

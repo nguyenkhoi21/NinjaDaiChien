@@ -553,10 +553,455 @@ function getOrInitPlayerModeRank(pd, modeKey) {
     return r;
 }
 
+var VN_OFFSET_MS = 7 * 3600 * 1000;
+var LIMITED_STATE_FILE = path.join(__dirname, "..", "data", "limited_arena_state.json");
+
+var LIMITED_ARENA_THEMES = [
+    {
+        id: 1,
+        key: "akatsuki",
+        aliases: ["1", "akatsuki", "toipham", "srank"],
+        name: "Tuần Akatsuki & Tổ Chức Tội Phạm",
+        description: "Chỉ cho phép các thành viên Akatsuki, Taka/Orochimaru và Kara.",
+        allowedIds: [10120, 10780, 10290, 10150, 10310, 10320, 10330, 10360, 10380, 10660, 10160, 10570, 10560, 10370, 10700, 10110, 10800, 10280, 10340, 10350, 10520, 10890, 11050, 10990]
+    },
+    {
+        id: 2,
+        key: "uchiha",
+        aliases: ["2", "uchiha", "nhanthuat", "sharingan", "dojutsu"],
+        name: "Tuần Gia Tộc Uchiha & Nhãn Thuật",
+        description: "Chỉ cho phép tộc Uchiha, Sharingan, Rinnegan và Byakugan.",
+        allowedIds: [10030, 10830, 10940, 10120, 10780, 10610, 10160, 10570, 10370, 10700, 10920, 10860, 10050, 10750, 10470, 10380, 10660, 10080, 10220, 10950]
+    },
+    {
+        id: 3,
+        key: "kage",
+        aliases: ["3", "kage", "ngukage", "hokage"],
+        name: "Tuần Ngũ Đại Kage & Lãnh Đạo",
+        description: "Chỉ cho phép các Kage tiền nhiệm/đương nhiệm và thủ lĩnh làng lớn.",
+        allowedIds: [10540, 10880, 10460, 10410, 10010, 10820, 10130, 10790, 10750, 10960, 10470, 10090, 10850, 10510, 10670, 10600, 10430, 10720, 10500, 10440, 10630, 10770, 10530, 10680, 10450, 10690, 10480]
+    },
+    {
+        id: 4,
+        key: "jinchuriki",
+        aliases: ["4", "jinchuriki", "vithu", "lucdao", "sage", "tiennhan"],
+        name: "Tuần Vĩ Thú, Tiên Nhân & Lục Đạo",
+        description: "Chỉ cho phép Jinchuriki, Hiền Nhân, Lục Đạo và gia tộc Otsutsuki.",
+        allowedIds: [10020, 10810, 10960, 11060, 10890, 10490, 10650, 10090, 10850, 10680, 10170, 10570, 10700, 10770, 10100, 10740, 10820, 10880, 10280, 10970, 11020, 10840, 10860, 10900, 10710, 10930, 11030, 11040, 11050]
+    },
+    {
+        id: 5,
+        key: "konoha",
+        aliases: ["5", "konoha", "langla", "boruto", "leaf"],
+        name: "Tuần Làng Lá & Thế Hệ Mới",
+        description: "Chỉ cho phép các Nhẫn Giả Làng Lá Konoha và thế hệ Boruto.",
+        allowedIds: [10020, 10030, 10040, 10870, 10050, 10620, 10300, 10100, 10740, 10130, 10790, 10110, 10800, 10070, 10400, 10760, 10080, 10220, 10250, 10200, 10210, 10390, 10550, 10270, 10230, 10640, 10180, 10420, 10910, 10950, 11000, 10980, 10970, 10990]
+    },
+    {
+        id: 6,
+        key: "allied",
+        aliases: ["6", "allied", "lienminh", "tukho", "ngoailang"],
+        name: "Tuần Liên Minh Làng Cát, Sương, Đá & Mây",
+        description: "Chỉ cho phép Nhẫn Giả Cát, Sương Mù, Đá, Mây và Âm Thanh.",
+        allowedIds: [10090, 10850, 10240, 11010, 10260, 10510, 10670, 10060, 10190, 10290, 10340, 10450, 10530, 10680, 10690, 10430, 10600, 10720, 10440, 10500, 10630, 10170, 10770, 10140, 10590, 10350, 10520, 10730, 10480]
+    }
+];
+
+var _limArenaState = { overrideKey: null, switchCount: 0 };
+
+function loadLimitedArenaState() {
+    try {
+        if (fs.existsSync(LIMITED_STATE_FILE)) {
+            var parsed = JSON.parse(fs.readFileSync(LIMITED_STATE_FILE, "utf8") || "{}") || {};
+            if (parsed && (parsed.overrideKey === null || typeof parsed.overrideKey === "string")) {
+                _limArenaState.overrideKey = parsed.overrideKey;
+            }
+            _limArenaState.switchCount = Number(parsed.switchCount || 0);
+        }
+    } catch (e) { }
+}
+
+function saveLimitedArenaState() {
+    try {
+        var dir = path.dirname(LIMITED_STATE_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(LIMITED_STATE_FILE, JSON.stringify(_limArenaState), "utf8");
+    } catch (e) { }
+}
+
+loadLimitedArenaState();
+
+function getActiveLimitedArenaTheme(nowMs) {
+    var ms = (nowMs !== undefined && nowMs !== null) ? Number(nowMs) : Date.now();
+    var vnDate = new Date(ms + VN_OFFSET_MS - 5 * 3600 * 1000);
+    var dow = vnDate.getUTCDay(); // 0=Sunday..6=Saturday (aligned to Sunday 05:00 VN weekly cadence)
+    var sundayMs = Date.UTC(vnDate.getUTCFullYear(), vnDate.getUTCMonth(), vnDate.getUTCDate() - dow);
+    var weekKey = new Date(sundayMs).toISOString().slice(0, 10);
+    var weekNumber = Math.floor(sundayMs / (7 * 86400 * 1000));
+    var autoIdx = ((weekNumber % LIMITED_ARENA_THEMES.length) + LIMITED_ARENA_THEMES.length) % LIMITED_ARENA_THEMES.length;
+
+    var chosen = LIMITED_ARENA_THEMES[autoIdx];
+    var isManual = false;
+    if (_limArenaState.overrideKey) {
+        for (var i = 0; i < LIMITED_ARENA_THEMES.length; i++) {
+            if (LIMITED_ARENA_THEMES[i].key === _limArenaState.overrideKey) {
+                chosen = LIMITED_ARENA_THEMES[i];
+                isManual = true;
+                break;
+            }
+        }
+    }
+
+    var allowedIds = [];
+    var allowedSet = {};
+    for (var j = 0; j < chosen.allowedIds.length; j++) {
+        var hid = Number(chosen.allowedIds[j]);
+        if (typeof Config !== "undefined" && Config.hero && !Config.hero[hid]) continue;
+        if (!allowedSet[hid]) {
+            allowedSet[hid] = true;
+            allowedIds.push(hid);
+        }
+    }
+
+    return {
+        id: chosen.id,
+        key: chosen.key,
+        name: chosen.name,
+        description: chosen.description,
+        isManual: isManual,
+        weekKey: weekKey,
+        revision: Number(chosen.id) + Number(_limArenaState.switchCount || 0) * 10,
+        allowedIds: allowedIds,
+        allowedSet: allowedSet
+    };
+}
+
+function setLimitedArenaThemeOverride(argStr) {
+    var token = String(argStr || "").trim().toLowerCase();
+    if (!token || token === "list" || token === "info") {
+        return { action: "list", active: getActiveLimitedArenaTheme(), themes: LIMITED_ARENA_THEMES };
+    }
+    if (token === "auto" || token === "reset" || token === "weekly" || token === "0") {
+        _limArenaState.overrideKey = null;
+        _limArenaState.switchCount = Number(_limArenaState.switchCount || 0) + 1;
+        saveLimitedArenaState();
+        _cachedMatchups = {};
+        return { action: "auto", active: getActiveLimitedArenaTheme(), themes: LIMITED_ARENA_THEMES };
+    }
+    for (var i = 0; i < LIMITED_ARENA_THEMES.length; i++) {
+        var th = LIMITED_ARENA_THEMES[i];
+        if (th.key === token || String(th.id) === token || (th.aliases && th.aliases.indexOf(token) !== -1)) {
+            _limArenaState.overrideKey = th.key;
+            _limArenaState.switchCount = Number(_limArenaState.switchCount || 0) + 1;
+            saveLimitedArenaState();
+            _cachedMatchups = {};
+            return { action: "set", active: getActiveLimitedArenaTheme(), themes: LIMITED_ARENA_THEMES };
+        }
+    }
+    return { action: "invalid", active: getActiveLimitedArenaTheme(), themes: LIMITED_ARENA_THEMES };
+}
+
+function sanitizeLimitedIds(idList, allowedSet, fallbackList, maxLen) {
+    maxLen = Math.max(1, Number(maxLen || 5));
+    var out = [];
+    var parsed = parseHeroIdInput(idList);
+    for (var i = 0; i < parsed.length; i++) {
+        var hid = parsed[i];
+        if (!allowedSet[hid]) continue;
+        if (out.indexOf(hid) === -1) out.push(hid);
+        if (out.length >= maxLen) break;
+    }
+    if (out.length === 0 && Array.isArray(fallbackList)) {
+        for (var j = 0; j < fallbackList.length && out.length < maxLen; j++) {
+            var fid = Number(fallbackList[j]);
+            if (allowedSet[fid] && out.indexOf(fid) === -1) out.push(fid);
+        }
+    }
+    return out;
+}
+
+function getLimitedFallbackIdsForData(session, pd, activeTheme) {
+    var ownedSorted = getSortedOwnedHeroIdsForData(session, pd);
+    var out = [];
+    for (var i = 0; i < ownedSorted.length; i++) {
+        if (activeTheme.allowedSet[ownedSorted[i]] && out.indexOf(ownedSorted[i]) === -1) {
+            out.push(ownedSorted[i]);
+        }
+    }
+    for (var j = 0; j < activeTheme.allowedIds.length && out.length < 5; j++) {
+        var aid = activeTheme.allowedIds[j];
+        if (out.indexOf(aid) === -1) out.push(aid);
+    }
+    return out.slice(0, 5);
+}
+
+// --- Normal Tower (Tháp Mất Tích) Rules & State Helpers ---
+function pad2(n) {
+    return (n < 10 ? "0" : "") + n;
+}
+
+function getTowerScheduleState(nowMs, playerData) {
+    var ms = (nowMs !== undefined && nowMs !== null) ? Number(nowMs) : Date.now();
+    var vnClock = new Date(ms + VN_OFFSET_MS);
+    var vnHour = vnClock.getUTCHours();
+    var shiftedDaily = new Date(ms + VN_OFFSET_MS - 5 * 3600 * 1000);
+    var dailyKey = shiftedDaily.getUTCFullYear() + "-" + pad2(shiftedDaily.getUTCMonth() + 1) + "-" + pad2(shiftedDaily.getUTCDate());
+    var dow = shiftedDaily.getUTCDay(); // 0=Sunday (Day 1) .. 6=Saturday (Day 7)
+    var dayIndex = dow + 1;
+    var sundayMs = Date.UTC(shiftedDaily.getUTCFullYear(), shiftedDaily.getUTCMonth(), shiftedDaily.getUTCDate() - dow);
+    var weekKey = new Date(sundayMs).toISOString().slice(0, 10);
+    var weekStartRealMs = sundayMs + 5 * 3600 * 1000 - VN_OFFSET_MS;
+    var nextWeekStartRealMs = weekStartRealMs + 7 * 86400 * 1000;
+    var refreshTime = Math.max(0, Math.floor((nextWeekStartRealMs - ms) / 1000));
+    var openAll = !!(playerData && playerData.tower_open_all_week === weekKey);
+    var dailyMax = openAll ? 35 : Math.min(35, dayIndex * 5);
+    return {
+        nowMs: ms,
+        nowSec: Math.floor(ms / 1000),
+        vnHour: vnHour,
+        isResetWindow: (vnHour === 5),
+        dailyKey: dailyKey,
+        weekKey: weekKey,
+        dayIndex: dayIndex,
+        dailyMax: dailyMax,
+        openAll: openAll,
+        refreshTime: refreshTime,
+        weekCreateTime: Math.floor(weekStartRealMs / 1000)
+    };
+}
+
+function pickWeightedTowerDrop(boxId, fallbackDropId) {
+    if (typeof Config !== "undefined" && Config.box_drop && Config.box_drop[boxId]) {
+        var bucket = Config.box_drop[boxId];
+        var keys = Object.keys(bucket);
+        if (keys.length > 0) {
+            var totalWeight = 0;
+            for (var i = 0; i < keys.length; i++) {
+                totalWeight += Math.max(1, Number(bucket[keys[i]].weight || 1));
+            }
+            var roll = Math.random() * totalWeight;
+            var acc = 0;
+            for (var j = 0; j < keys.length; j++) {
+                acc += Math.max(1, Number(bucket[keys[j]].weight || 1));
+                if (roll <= acc) return Number(bucket[keys[j]].id || keys[j]);
+            }
+            return Number(bucket[keys[keys.length - 1]].id || keys[keys.length - 1]);
+        }
+    }
+    return Number(fallbackDropId || 80101);
+}
+
+function getGlobalVarNumber(varName, fallbackVal) {
+    var rawVal = (typeof ConfigGlobalVar !== "undefined" && ConfigGlobalVar && ConfigGlobalVar[varName] !== undefined)
+        ? ConfigGlobalVar[varName]
+        : ((typeof Config !== "undefined" && Config.global_var && Config.global_var[varName] !== undefined)
+            ? (Config.global_var[varName] && Config.global_var[varName].data !== undefined
+                ? Config.global_var[varName].data
+                : Config.global_var[varName])
+            : undefined);
+    var parsed = Number(rawVal);
+    return (!isNaN(parsed) && rawVal !== undefined && rawVal !== null && rawVal !== "")
+        ? parsed
+        : fallbackVal;
+}
+
+function getTowerBoxCost(openedCount) {
+    var boxNum = Math.min(4, Math.max(1, Number(openedCount || 0) + 1));
+    var defaults = { 1: 0, 2: 100, 3: 150, 4: 200 };
+    return Math.max(0, getGlobalVarNumber("TOWER_BOX_" + boxNum + "_STONE", defaults[boxNum]));
+}
+
+function buildValidTowerBotHeroIds(rawList) {
+    var out = [];
+    for (var i = 0; i < rawList.length; i++) {
+        var hid = Number(rawList[i]);
+        if (typeof Config !== "undefined" && Config.hero && !Config.hero[hid]) continue;
+        if (typeof Config !== "undefined" && Config.skill && !Config.skill[hid]) continue;
+        if (out.indexOf(hid) === -1) out.push(hid);
+        if (out.length >= 5) break;
+    }
+    var fb = [10020, 10030, 10040, 10050, 10010];
+    for (var j = 0; out.length < 5 && j < fb.length; j++) {
+        if (out.indexOf(fb[j]) === -1) out.push(fb[j]);
+    }
+    return out;
+}
+
+function buildTowerKeeperHeroPayloadsForLayer(session, layer, realPlayerEntry) {
+    if (realPlayerEntry && realPlayerEntry.pd) {
+        var teams = resolveOtherPlayerModeTeams(session, realPlayerEntry.pd, "dark_arena", 1);
+        var rHeros = [];
+        for (var i = 0; i < teams[0].length; i++) {
+            var hObj = teams[0][i];
+            if (!hObj) continue;
+            var hid = Number(hObj.hero_id || hObj.id);
+            if (typeof Config !== "undefined" && Config.skill && !Config.skill[hid]) continue;
+            rHeros.push(hObj);
+        }
+        if (rHeros.length > 0) {
+            var pIcon = Number(realPlayerEntry.pd.icon || rHeros[0].hero_id || 10020);
+            if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[pIcon]) pIcon = 10020;
+            return {
+                keeper_uid: realPlayerEntry.pid,
+                player_name: realPlayerEntry.pd.team_name || ("Vô Địch Kage #" + realPlayerEntry.rank),
+                player_lv: Math.max(1, Number(realPlayerEntry.pd.team_lv || 1)),
+                player_icon: pIcon,
+                heros: rHeros
+            };
+        }
+    }
+
+    // Static fallback keeper scaled smoothly by floor 1..35 (capped at Lv 84 so static bots never open Bát Môn below 85)
+    var kRank = Math.max(1, Math.min(35, 36 - Number(layer || 1)));
+    var botTemplate = BOT_ARENA_POOL[(kRank - 1) % BOT_ARENA_POOL.length];
+    var botLv = Math.min(84, Math.max(18, Math.round(16 + layer * 1.94)));
+    var botQuality = Math.min(10, Math.max(2, 2 + Math.floor(layer / 4)));
+    var botStar = Math.min(5, 2 + Math.floor(layer / 10));
+    var rawIds = botTemplate.teams[(layer - 1) % botTemplate.teams.length];
+    var heroIds = buildValidTowerBotHeroIds(rawIds);
+    var botHeros = [];
+    for (var bi = 0; bi < heroIds.length; bi++) {
+        botHeros.push(generateCompetentHeroRecord(heroIds[bi], botLv, botQuality, botStar));
+    }
+    var bIcon = Number(botTemplate.icon || 10020);
+    if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[bIcon]) bIcon = 10020;
+    return {
+        keeper_uid: 0,
+        player_name: (layer >= 26)
+            ? ("Kage Top " + kRank + " - " + botTemplate.name)
+            : ("Thủ Vệ Tầng " + layer + " - " + botTemplate.name),
+        player_lv: botLv,
+        player_icon: bIcon,
+        heros: botHeros
+    };
+}
+
+function getKageKeeperMapByLayer(session) {
+    // Rule 1: Top 35 of Lôi Đài Kage guard floors 35..1 (Top 1 -> Floor 35 .. Top 10 -> Floor 26 .. Rank 35 -> Floor 1)
+    var byLayer = {};
+    if (typeof playerDb === "undefined" || !playerDb) return byLayer;
+    var myUid = session ? session.getNumericId() : 0;
+    var candidates = [];
+    for (var pk in playerDb) {
+        var pd = playerDb[pk];
+        if (!pd || !pd.heros) continue;
+        var pid = Number(pd.uid || getOrAssignUid(pk, pd));
+        if (myUid && pid === myUid) continue;
+        var hKeys = Object.keys(pd.heros).map(Number).filter(function (id) { return id > 0; });
+        if (hKeys.length === 0) continue;
+        var kRank = getOrInitPlayerModeRank(pd, "dark_arena");
+        candidates.push({ key: pk, pid: pid, pd: pd, rank: kRank });
+    }
+    candidates.sort(function (a, b) {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        return a.pid - b.pid;
+    });
+
+    for (var i = 0; i < candidates.length; i++) {
+        var c = candidates[i];
+        var targetLayer = 36 - c.rank;
+        if (targetLayer >= 1 && targetLayer <= 35 && !byLayer[targetLayer]) {
+            byLayer[targetLayer] = c;
+        }
+    }
+    return byLayer;
+}
+
+function buildOrSyncNormalTowerLayer(session, layerNum, keeperMap) {
+    layerNum = Math.max(1, Math.min(35, Number(layerNum || 1)));
+    var pd = session.data;
+    if (!pd.tower_layers) pd.tower_layers = {};
+    var existing = pd.tower_layers[layerNum];
+    if (existing && Number(existing.has_pass || 0) === 1) {
+        return existing;
+    }
+
+    keeperMap = keeperMap || getKageKeeperMapByLayer(session);
+    var realEntry = keeperMap[layerNum] || null;
+    if (!realEntry && existing && Number(existing.keeper_uid || 0) > 0 && findPlayerByIdOrUid) {
+        var found = findPlayerByIdOrUid(Number(existing.keeper_uid));
+        if (found && found.data) {
+            realEntry = { pid: Number(existing.keeper_uid), pd: found.data, rank: getOrInitPlayerModeRank(found.data, "dark_arena") };
+        }
+    }
+
+    var built = buildTowerKeeperHeroPayloadsForLayer(session, layerNum, realEntry);
+    if (existing) {
+        // Rule 2: Unpassed floor refreshes keeper's latest Lôi Đài Kage defense team & info
+        existing.keeper_uid = built.keeper_uid;
+        existing.player_name = built.player_name;
+        existing.player_lv = built.player_lv;
+        existing.player_icon = built.player_icon;
+        existing.heros = JSON.stringify(built.heros);
+        return existing;
+    }
+
+    var created = {
+        player_id: session.getNumericId(),
+        layer: layerNum,
+        has_pass: 0,
+        keeper_uid: built.keeper_uid,
+        player_icon: built.player_icon,
+        player_lv: built.player_lv,
+        player_name: built.player_name,
+        box_1_id: 0,
+        box_2_id: 0,
+        box_3_id: 0,
+        box_4_id: 0,
+        heros: JSON.stringify(built.heros)
+    };
+    pd.tower_layers[layerNum] = created;
+    return created;
+}
+
+function ensureNormalTowerState(session, nowMs) {
+    var d = session.data;
+    var sched = getTowerScheduleState(nowMs, d);
+    var changed = false;
+
+    if (d.tower_week_key !== sched.weekKey) {
+        d.tower_week_key = sched.weekKey;
+        d.tower_daily_key = sched.dailyKey;
+        d.tower_cur_layer = 1;
+        d.tower_layers = {};
+        d.tower_heros = {};
+        if (d.tower_open_all_week && d.tower_open_all_week !== sched.weekKey) {
+            delete d.tower_open_all_week;
+        }
+        changed = true;
+    } else if (d.tower_daily_key !== sched.dailyKey) {
+        // Rule 6: 05:00 daily resets player hero HP & energy while keeping floor progress
+        d.tower_daily_key = sched.dailyKey;
+        d.tower_heros = {};
+        changed = true;
+    }
+
+    if (!d.tower_layers || typeof d.tower_layers !== "object") {
+        d.tower_layers = {};
+        changed = true;
+    }
+    if (!d.tower_heros || typeof d.tower_heros !== "object") {
+        d.tower_heros = {};
+        changed = true;
+    }
+    var cur = Math.max(1, Math.min(35, Number(d.tower_cur_layer || 1)));
+    if (d.tower_cur_layer !== cur) {
+        d.tower_cur_layer = cur;
+        changed = true;
+    }
+
+    if (changed && typeof session.save === "function") {
+        session.save();
+    }
+    return sched;
+}
+
 function resolveOtherPlayerModeTeams(session, pd, modeKey, teamNum) {
     var savedTeams;
     var allowUnowned = false;
     var effectiveTeams = teamNum;
+    var activeTheme = (modeKey === "lim_arena") ? getActiveLimitedArenaTheme() : null;
+
     if (modeKey === "dark_arena") {
         savedTeams = [
             pd.dark_arena_def_1 || pd.dark_arena_lineup_1 || pd.dark_arena_atk_1,
@@ -572,7 +1017,9 @@ function resolveOtherPlayerModeTeams(session, pd, modeKey, teamNum) {
         ];
     } else if (modeKey === "lim_arena") {
         allowUnowned = true;
-        savedTeams = [pd.lim_arena_def_ids || pd.lim_arena_def || pd.lim_arena_atk_ids];
+        var limRaw = pd.lim_arena_def_ids || pd.lim_arena_def || pd.lim_arena_atk_ids;
+        var limFb = getLimitedFallbackIdsForData(session, pd, activeTheme);
+        savedTeams = [sanitizeLimitedIds(limRaw, activeTheme.allowedSet, limFb, 5)];
     } else if (modeKey === "cross_arena") {
         effectiveTeams = 1;
         savedTeams = [pd.cross_arena_def_1 || pd.cross_arena_lineup || pd.cross_arena_atk_1];
@@ -586,10 +1033,20 @@ function resolveOtherPlayerModeTeams(session, pd, modeKey, teamNum) {
         var objs = [];
         for (var hi = 0; hi < idTeams[ti].length; hi++) {
             var hid = idTeams[ti][hi];
+            if (activeTheme && !activeTheme.allowedSet[hid]) continue;
             if (pd.heros && pd.heros[hid]) {
                 objs.push(computeOtherPlayerHeroPayload(session, pd, hid));
             } else {
                 objs.push(generateCompetentHeroRecord(hid, 50, 6, 3));
+            }
+        }
+        if (activeTheme && objs.length === 0) {
+            var emergencyIds = getLimitedFallbackIdsForData(session, pd, activeTheme);
+            for (var ei = 0; ei < emergencyIds.length; ei++) {
+                var ehid = emergencyIds[ei];
+                objs.push((pd.heros && pd.heros[ehid])
+                    ? computeOtherPlayerHeroPayload(session, pd, ehid)
+                    : generateCompetentHeroRecord(ehid, 50, 6, 3));
             }
         }
         payloadTeams.push(objs);
@@ -623,21 +1080,21 @@ function getPlayerArenaBenchmark(session) {
 // Static fallback bots used ONLY when fewer than 3 real players exist in playerDb.
 // Levels remain strictly below 85 so bots never open Bát Môn below Lv 85 and never scale to user data.
 var BOT_ARENA_POOL = [
-    { id: 900001, base_rank: 1,  lv: 84, quality: 10, star: 4, win_count: 45, name: "Itachi Uchiha",       icon: 10140, server_id: 2, teams: [[10030, 10050, 10140, 10100, 10020], [10010, 10070, 10080, 10090, 10040], [10110, 10120, 10130, 10150, 10050]] },
+    { id: 900001, base_rank: 1,  lv: 84, quality: 10, star: 4, win_count: 45, name: "Itachi Uchiha",       icon: 10120, server_id: 2, teams: [[10030, 10050, 10120, 10100, 10020], [10010, 10070, 10080, 10090, 10040], [10110, 10130, 10140, 10150, 10050]] },
     { id: 900002, base_rank: 2,  lv: 80, quality: 10, star: 4, win_count: 40, name: "Hokage Đệ Tứ",        icon: 10010, server_id: 2, teams: [[10010, 10020, 10050, 10040, 10100], [10030, 10070, 10080, 10130, 10120], [10090, 10110, 10140, 10150, 10020]] },
     { id: 900003, base_rank: 3,  lv: 76, quality: 9,  star: 4, win_count: 35, name: "Naruto Hiền Nhân",    icon: 10020, server_id: 3, teams: [[10020, 10040, 10050, 10130, 10100], [10070, 10080, 10090, 10010, 10030], [10110, 10120, 10140, 10150, 10040]] },
-    { id: 900004, base_rank: 4,  lv: 72, quality: 9,  star: 3, win_count: 30, name: "Sasuke Taka",         icon: 10030, server_id: 3, teams: [[10030, 10050, 10070, 10100, 10140], [10020, 10040, 10080, 10090, 10130], [10010, 10110, 10120, 10150, 10030]] },
+    { id: 900004, base_rank: 4,  lv: 72, quality: 9,  star: 3, win_count: 30, name: "Sasuke Taka",         icon: 10030, server_id: 3, teams: [[10030, 10050, 10070, 10100, 10120], [10020, 10040, 10080, 10090, 10130], [10010, 10110, 10140, 10150, 10030]] },
     { id: 900005, base_rank: 5,  lv: 68, quality: 8,  star: 3, win_count: 26, name: "Kakashi Ám Bộ",       icon: 10050, server_id: 4, teams: [[10050, 10010, 10030, 10080, 10100], [10020, 10040, 10070, 10120, 10130], [10090, 10110, 10140, 10150, 10010]] },
     { id: 900006, base_rank: 6,  lv: 64, quality: 8,  star: 3, win_count: 22, name: "Rock Lee Bát Môn",    icon: 10070, server_id: 4, teams: [[10070, 10080, 10090, 10040, 10020], [10050, 10100, 10120, 10010, 10030], [10110, 10130, 10140, 10150, 10070]] },
-    { id: 900007, base_rank: 7,  lv: 60, quality: 7,  star: 3, win_count: 19, name: "Neji Bạch Nhãn",      icon: 10080, server_id: 5, teams: [[10080, 10130, 10070, 10090, 10050], [10020, 10030, 10040, 10100, 10010], [10110, 10120, 10140, 10150, 10080]] },
-    { id: 900008, base_rank: 8,  lv: 56, quality: 7,  star: 3, win_count: 16, name: "Shikamaru Quân Sư",   icon: 10100, server_id: 5, teams: [[10100, 10110, 10120, 10020, 10040], [10010, 10030, 10050, 10070, 10080], [10090, 10130, 10140, 10150, 10100]] },
-    { id: 900009, base_rank: 9,  lv: 52, quality: 6,  star: 3, win_count: 14, name: "Hinata Byakugan",     icon: 10130, server_id: 2, teams: [[10130, 10140, 10150, 10020, 10040], [10080, 10070, 10050, 10100, 10010], [10030, 10090, 10110, 10120, 10130]] },
+    { id: 900007, base_rank: 7,  lv: 60, quality: 7,  star: 3, win_count: 19, name: "Neji Bạch Nhãn",      icon: 10220, server_id: 5, teams: [[10220, 10130, 10070, 10090, 10050], [10020, 10030, 10040, 10100, 10010], [10110, 10120, 10140, 10150, 10080]] },
+    { id: 900008, base_rank: 8,  lv: 56, quality: 7,  star: 3, win_count: 16, name: "Shikamaru Quân Sư",   icon: 10200, server_id: 5, teams: [[10200, 10110, 10120, 10020, 10040], [10010, 10030, 10050, 10070, 10080], [10090, 10130, 10140, 10150, 10100]] },
+    { id: 900009, base_rank: 9,  lv: 52, quality: 6,  star: 3, win_count: 14, name: "Hinata Byakugan",     icon: 10080, server_id: 2, teams: [[10080, 10140, 10150, 10020, 10040], [10220, 10070, 10050, 10100, 10010], [10030, 10090, 10110, 10120, 10130]] },
     { id: 900010, base_rank: 10, lv: 48, quality: 6,  star: 3, win_count: 12, name: "Sakura Bách Hào",     icon: 10040, server_id: 6, teams: [[10040, 10020, 10030, 10050, 10010], [10100, 10110, 10120, 10070, 10080], [10090, 10130, 10140, 10150, 10040]] },
-    { id: 900011, base_rank: 11, lv: 44, quality: 5,  star: 2, win_count: 10, name: "Choji Điệp Ảnh",      icon: 10120, server_id: 6, teams: [[10120, 10100, 10110, 10070, 10040], [10020, 10050, 10080, 10090, 10130], [10010, 10030, 10140, 10150, 10120]] },
-    { id: 900012, base_rank: 12, lv: 40, quality: 5,  star: 2, win_count: 8,  name: "Kiba Nha Thông Nha",  icon: 10140, server_id: 3, teams: [[10140, 10130, 10150, 10070, 10030], [10020, 10040, 10050, 10080, 10100], [10010, 10090, 10110, 10120, 10140]] },
-    { id: 900013, base_rank: 13, lv: 35, quality: 4,  star: 2, win_count: 6,  name: "Shino Khống Trùng",   icon: 10150, server_id: 4, teams: [[10150, 10130, 10140, 10100, 10050], [10010, 10020, 10030, 10040, 10070], [10080, 10090, 10110, 10120, 10150]] },
-    { id: 900014, base_rank: 14, lv: 30, quality: 4,  star: 2, win_count: 4,  name: "Tenten Nhẫn Cụ",      icon: 10090, server_id: 5, teams: [[10090, 10070, 10080, 10050, 10020], [10030, 10040, 10100, 10120, 10130], [10010, 10110, 10140, 10150, 10090]] },
-    { id: 900015, base_rank: 15, lv: 25, quality: 3,  star: 2, win_count: 2,  name: "Ino Tâm Chuyển",      icon: 10110, server_id: 6, teams: [[10110, 10100, 10120, 10040, 10050], [10020, 10030, 10070, 10080, 10090], [10010, 10130, 10140, 10150, 10110]] }
+    { id: 900011, base_rank: 11, lv: 44, quality: 5,  star: 2, win_count: 10, name: "Choji Điệp Ảnh",      icon: 10210, server_id: 6, teams: [[10210, 10100, 10110, 10070, 10040], [10020, 10050, 10080, 10090, 10130], [10010, 10030, 10140, 10150, 10120]] },
+    { id: 900012, base_rank: 12, lv: 40, quality: 5,  star: 2, win_count: 8,  name: "Kiba Nha Thông Nha",  icon: 10270, server_id: 3, teams: [[10270, 10130, 10150, 10070, 10030], [10020, 10040, 10050, 10080, 10100], [10010, 10090, 10110, 10120, 10140]] },
+    { id: 900013, base_rank: 13, lv: 35, quality: 4,  star: 2, win_count: 6,  name: "Shino Khống Trùng",   icon: 10230, server_id: 4, teams: [[10230, 10130, 10140, 10100, 10050], [10010, 10020, 10030, 10040, 10070], [10080, 10090, 10110, 10120, 10150]] },
+    { id: 900014, base_rank: 14, lv: 30, quality: 4,  star: 2, win_count: 4,  name: "Tenten Nhẫn Cụ",      icon: 10250, server_id: 5, teams: [[10250, 10070, 10080, 10050, 10020], [10030, 10040, 10100, 10120, 10130], [10010, 10110, 10140, 10150, 10090]] },
+    { id: 900015, base_rank: 15, lv: 25, quality: 3,  star: 2, win_count: 2,  name: "Ino Tâm Chuyển",      icon: 10390, server_id: 6, teams: [[10390, 10100, 10120, 10040, 10050], [10020, 10030, 10070, 10080, 10090], [10010, 10130, 10140, 10150, 10110]] }
 ];
 
 var _cachedMatchups = {};
@@ -659,9 +1116,19 @@ function sanitizeHeroIds(idList, maxLen) {
 }
 
 function buildStaticBotMatchup(bot, modeKey, teamNum, isCross) {
+    var activeTheme = (modeKey === "lim_arena") ? getActiveLimitedArenaTheme() : null;
     var bTeams = [];
     for (var tm = 0; tm < teamNum; tm++) {
-        var templateIds = sanitizeHeroIds(bot.teams[tm % bot.teams.length], 5);
+        var templateIds;
+        if (activeTheme && activeTheme.allowedIds.length > 0) {
+            templateIds = [];
+            var startShift = ((Number(bot.base_rank || 1) - 1) * 3 + tm * 5) % activeTheme.allowedIds.length;
+            for (var ai = 0; ai < 5 && ai < activeTheme.allowedIds.length; ai++) {
+                templateIds.push(activeTheme.allowedIds[(startShift + ai) % activeTheme.allowedIds.length]);
+            }
+        } else {
+            templateIds = sanitizeHeroIds(bot.teams[tm % bot.teams.length], 5);
+        }
         var hObjs = [];
         for (var th = 0; th < templateIds.length; th++) {
             hObjs.push(generateCompetentHeroRecord(templateIds[th], bot.lv, bot.quality, bot.star));
@@ -970,6 +1437,8 @@ function applyRankSwapAndRecordHistory(modeKey, atkSession, oppMatch, info) {
         def_heros_3: defH3
     };
 
+    var isLimitedMode = (modeKey === "lim_arena");
+    var histDayKey = isLimitedMode ? getTodayDateKey() : undefined;
     var atkEntry = Object.assign({}, baseEntry, {
         is_win: isWin,
         viewer_is_attacker: 1,
@@ -979,12 +1448,22 @@ function applyRankSwapAndRecordHistory(modeKey, atkSession, oppMatch, info) {
         fighter_id: defUid,
         server_id: defServerId
     });
+    if (isLimitedMode) {
+        atkEntry.day = histDayKey;
+        atkEntry.result = {
+            isWin: isWin,
+            newRank: newAtkRank,
+            seed: Number(info.seed || 0),
+            fight_data: roundReplays[0] || ""
+        };
+    }
     if (!Array.isArray(atkData[meta.historyField])) atkData[meta.historyField] = [];
     atkData[meta.historyField].unshift(atkEntry);
     if (atkData[meta.historyField].length > 20) atkData[meta.historyField].length = 20;
 
     if (defEntry && defEntry.data) {
         var defWinFlag = isWin === 1 ? 0 : 1;
+        var defNewRank = Number(defEntry.data[meta.rankField] || oppRank || 0);
         var defEntryRecord = Object.assign({}, baseEntry, {
             is_win: defWinFlag,
             viewer_is_attacker: 0,
@@ -994,6 +1473,15 @@ function applyRankSwapAndRecordHistory(modeKey, atkSession, oppMatch, info) {
             fighter_id: atkUid,
             server_id: Number(atkData.server_id || 1)
         });
+        if (isLimitedMode) {
+            defEntryRecord.day = histDayKey;
+            defEntryRecord.result = {
+                isWin: defWinFlag,
+                newRank: defNewRank,
+                seed: Number(info.seed || 0),
+                fight_data: roundReplays[0] || ""
+            };
+        }
         if (!Array.isArray(defEntry.data[meta.historyField])) defEntry.data[meta.historyField] = [];
         defEntry.data[meta.historyField].unshift(defEntryRecord);
         if (defEntry.data[meta.historyField].length > 20) defEntry.data[meta.historyField].length = 20;
@@ -1423,167 +1911,112 @@ const ArenaAndTowerHandler = {
 
         // 1. Tháp Mất Tích & Tháp Vô Tận (LostTowerView.js, NOEndTowerView.js)
         if (cmd === SVRCMD.PlayerTowerInfo || cmd === SVRCMD.GetTowerLayer || cmd === SVRCMD.ResetTower || cmd === SVRCMD.ResetTowerEx) {
-            var nowSec = Math.floor(Date.now() / 1000);
+            var sched = ensureNormalTowerState(this);
             if (cmd === SVRCMD.ResetTower || cmd === SVRCMD.ResetTowerEx) {
                 this.data.tower_cur_layer = 1;
                 this.data.tower_layers = {};
                 this.data.tower_heros = {};
+                this.save();
             }
-            var curLayer = Number(this.data.tower_cur_layer || 1);
-            var reqLayer = (cmd === SVRCMD.GetTowerLayer && params && params[0]) ? Number(params[0]) : curLayer;
-            if (!this.data.tower_layers) this.data.tower_layers = {};
-            if (!this.data.tower_layers[reqLayer]) {
-                var enemyIds = [10020, 10040, 10250];
-                var enemyHeros = [];
-                var enemyName = "Thủ Vệ Tầng " + reqLayer;
-                var enemyIcon = 80110020;
-                var enemyLv = Math.max(10, reqLayer * 3);
+            var curLayer = Math.max(1, Math.min(35, Number(this.data.tower_cur_layer || 1)));
+            var reqLayer = (cmd === SVRCMD.GetTowerLayer && params && params[0] !== undefined)
+                ? Math.max(1, Math.min(35, Number(params[0])))
+                : curLayer;
 
-                // Nếu là Tầng 1: Lấy thông tin người chơi top Đấu Trường, nếu không có lấy bot
-                if (reqLayer === 1) {
-                    var topPlayer = null;
-                    if (typeof playerDb !== "undefined") {
-                        for (var pk in playerDb) {
-                            var pd = playerDb[pk];
-                            if (pd && Number(pd.uid) !== this.getNumericId() && pd.heros && Object.keys(pd.heros).length > 0) {
-                                topPlayer = pd;
-                                break;
-                            }
-                        }
-                    }
-                    if (topPlayer) {
-                        enemyName = topPlayer.team_name || "Vô Địch Lôi Đài";
-                        enemyIcon = Number(topPlayer.icon || 80110020);
-                        enemyLv = Number(topPlayer.team_lv || 60);
-                        var hKeys = Object.keys(topPlayer.heros).slice(0, 5);
-                        for (var hi = 0; hi < hKeys.length; hi++) {
-                            enemyHeros.push(this.computeHeroPayload(hKeys[hi]));
-                        }
-                    }
-                }
-
-                if (enemyHeros.length === 0) {
-                    var candidatePool = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
-                    var shift = ((reqLayer - 1) * 3) % candidatePool.length;
-                    for (var ei = 0; ei < 5; ei++) {
-                        var ehId = candidatePool[(shift + ei) % candidatePool.length];
-                        var eh = this.createDefaultHeroRecord(ehId);
-                        eh.lv = Math.min(100, Math.max(10, reqLayer * 3));
-                        eh.level = eh.lv;
-                        eh.quality = Math.min(15, 1 + Math.floor(reqLayer / 3));
-                        eh.hp = 2000 + reqLayer * 800;
-                        eh.maxhp = eh.hp;
-                        eh.atk = 200 + reqLayer * 60;
-                        eh.def = 80 + reqLayer * 25;
-                        eh.mp = 150 + reqLayer * 40;
-                        eh.mp_def = 80 + reqLayer * 25;
-                        eh.cri = 10;
-                        eh.mp_cri = 10;
-                        eh.power = 0;
-                        enemyHeros.push(eh);
-                    }
-                }
-
-                this.data.tower_layers[reqLayer] = {
-                    player_id: this.getNumericId(),
-                    layer: reqLayer,
-                    has_pass: 0,
-                    player_icon: enemyIcon,
-                    player_lv: enemyLv,
-                    player_name: enemyName,
-                    box_1_id: 0,
-                    box_2_id: 0,
-                    box_3_id: 0,
-                    box_4_id: 0,
-                    heros: JSON.stringify(enemyHeros)
-                };
+            var keeperMap = getKageKeeperMapByLayer(this);
+            var reqLayerObj = buildOrSyncNormalTowerLayer(this, reqLayer, keeperMap);
+            if (reqLayer !== curLayer) {
+                buildOrSyncNormalTowerLayer(this, curLayer, keeperMap);
             }
+            this.save();
+
             respond({
-                max: 35,
-                refreshTime: 86400,
+                max: sched.dailyMax,
+                refreshTime: sched.refreshTime,
                 tower: {
                     player_id: this.getNumericId(),
-                    create_time: nowSec - 3600,
+                    create_time: sched.weekCreateTime,
                     cur_layer: curLayer,
                     heros: JSON.stringify(this.data.tower_heros || {})
                 },
-                layer: this.data.tower_layers[reqLayer]
+                layer: reqLayerObj
             });
             return true;
         }
 
         if (cmd === SVRCMD.CheckTowerTime) {
+            var checkSched = ensureNormalTowerState(this);
+            if (checkSched.isResetWindow && !this.data.tower_bypass_reset_window) {
+                return respond({}, {
+                    code: 45007,
+                    msg: "Tháp Mất Tích đang trong thời gian làm mới (05:00 - 06:00 VN)!"
+                }), true;
+            }
+            var checkLayer = Math.max(1, Math.min(35, Number(this.data.tower_cur_layer || 1)));
+            if (checkLayer > checkSched.dailyMax) {
+                return respond({}, {
+                    code: 45015,
+                    msg: "Tầng " + checkLayer + " chưa mở hôm nay (" + checkSched.dailyMax + "/35)! Mỗi ngày lúc 05:00 mở thêm 5 tầng."
+                }), true;
+            }
+            var curLayerData = this.data.tower_layers && this.data.tower_layers[checkLayer];
+            if (checkLayer === 35 && curLayerData && Number(curLayerData.has_pass || 0) === 1) {
+                return respond({}, {
+                    code: 45015,
+                    msg: "Bạn đã chinh phục hoàn toàn 35 tầng Tháp tuần này!"
+                }), true;
+            }
+            buildOrSyncNormalTowerLayer(this, checkLayer);
+            this.save();
             respond({});
             return true;
         }
 
         if (cmd === SVRCMD.AfterTowerFight) {
-            var heroObj = (params && params[1]) || {};
-            this.data.tower_heros = heroObj;
-            var curLayer = Number(this.data.tower_cur_layer || 1);
-            if (!this.data.tower_layers) this.data.tower_layers = {};
-            if (!this.data.tower_layers[curLayer]) {
-                this.data.tower_layers[curLayer] = { layer: curLayer };
+            ensureNormalTowerState(this);
+            var rawHeroObj = (params && params[1] !== undefined) ? params[1] : {};
+            if (typeof rawHeroObj === "string") {
+                try { rawHeroObj = JSON.parse(rawHeroObj) || {}; } catch (e) { rawHeroObj = {}; }
             }
-            var curLData = this.data.tower_layers[curLayer];
+            if (!this.data.tower_heros || typeof this.data.tower_heros !== "object") {
+                this.data.tower_heros = {};
+            }
+            if (rawHeroObj && typeof rawHeroObj === "object") {
+                for (var hKey in rawHeroObj) {
+                    if (Object.prototype.hasOwnProperty.call(rawHeroObj, hKey)) {
+                        this.data.tower_heros[hKey] = rawHeroObj[hKey];
+                    }
+                }
+            }
+
+            var curLayer = Math.max(1, Math.min(35, Number(this.data.tower_cur_layer || 1)));
+            var afterKeepers = getKageKeeperMapByLayer(this);
+            var curLData = buildOrSyncNormalTowerLayer(this, curLayer, afterKeepers);
+            var alreadyPassed = (Number(curLData.has_pass || 0) === 1);
             curLData.has_pass = 1;
 
-            // Thiết lập 4 rương quà hợp lệ từ Config.box_drop nếu chưa có
-            var pickDrop = function (boxId, defaultItem) {
-                if (typeof Config !== "undefined" && Config.box_drop && Config.box_drop[boxId]) {
-                    var pool = Object.keys(Config.box_drop[boxId]);
-                    if (pool.length > 0) {
-                        return Number(pool[Math.floor(Math.random() * pool.length)]);
-                    }
-                }
-                return defaultItem;
-            };
+            var towerCfg = (typeof Config !== "undefined" && Config.tower && Config.tower[curLayer])
+                ? Config.tower[curLayer]
+                : null;
+            var boxId1 = towerCfg ? Number(towerCfg.box_id_1 || 82001) : 82001;
+            var boxId2 = towerCfg ? Number(towerCfg.box_id_2 || 82002) : 82002;
+            var boxId3 = towerCfg ? Number(towerCfg.box_id_3 || 82003) : 82003;
+            var boxId4 = towerCfg ? Number(towerCfg.box_id_4 || 82003) : 82003;
 
-            if (!curLData.box_1_id || curLData.box_1_id === 0) curLData.box_1_id = pickDrop(82001, 80101);
-            if (!curLData.box_2_id || curLData.box_2_id === 0) curLData.box_2_id = pickDrop(82002, 80201);
-            if (!curLData.box_3_id || curLData.box_3_id === 0) curLData.box_3_id = pickDrop(82003, 80301);
-            if (!curLData.box_4_id || curLData.box_4_id === 0) curLData.box_4_id = pickDrop(82003, 80302);
-
-            // Chuẩn bị tầng tiếp theo với đội hình thủ vệ hoàn chỉnh (không để trống heros)
-            if (curLayer < 35) {
-                var nextLayer = curLayer + 1;
-                if (!this.data.tower_layers[nextLayer] || this.data.tower_layers[nextLayer].heros === "[]") {
-                    var candidatePool = [10020, 10030, 10040, 10050, 10010, 10060, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
-                    var nextHeros = [];
-                    var shift = ((nextLayer - 1) * 3) % candidatePool.length;
-                    for (var ei = 0; ei < 5; ei++) {
-                        var ehId = candidatePool[(shift + ei) % candidatePool.length];
-                        var eh = this.createDefaultHeroRecord(ehId);
-                        eh.lv = Math.min(100, Math.max(10, nextLayer * 3));
-                        eh.level = eh.lv;
-                        eh.quality = Math.min(15, 1 + Math.floor(nextLayer / 3));
-                        eh.hp = 2000 + nextLayer * 800;
-                        eh.maxhp = eh.hp;
-                        eh.atk = 200 + nextLayer * 60;
-                        eh.def = 80 + nextLayer * 25;
-                        eh.mp = 150 + nextLayer * 40;
-                        eh.mp_def = 80 + nextLayer * 25;
-                        eh.cri = 10;
-                        eh.mp_cri = 10;
-                        eh.power = 0;
-                        nextHeros.push(eh);
-                    }
-                    this.data.tower_layers[nextLayer] = {
-                        player_id: this.getNumericId(),
-                        layer: nextLayer,
-                        has_pass: 0,
-                        player_icon: 80110020,
-                        player_lv: Math.max(10, nextLayer * 3),
-                        player_name: "Thủ Vệ Tầng " + nextLayer,
-                        box_1_id: 0,
-                        box_2_id: 0,
-                        box_3_id: 0,
-                        box_4_id: 0,
-                        heros: JSON.stringify(nextHeros)
-                    };
-                }
+            if (!alreadyPassed) {
+                if (!curLData.box_1_id || curLData.box_1_id === 0) curLData.box_1_id = pickWeightedTowerDrop(boxId1, 80101);
+                if (!curLData.box_2_id || curLData.box_2_id === 0) curLData.box_2_id = pickWeightedTowerDrop(boxId2, 80201);
+                if (!curLData.box_3_id || curLData.box_3_id === 0) curLData.box_3_id = pickWeightedTowerDrop(boxId3, 80301);
+                if (!curLData.box_4_id || curLData.box_4_id === 0) curLData.box_4_id = pickWeightedTowerDrop(boxId4, 80302);
             }
 
+            if (curLayer < 35) {
+                var nextLayer = curLayer + 1;
+                this.data.tower_cur_layer = nextLayer;
+                buildOrSyncNormalTowerLayer(this, nextLayer, afterKeepers);
+            }
+
+            if (!this.data.daily_counts) this.data.daily_counts = {};
             this.data.daily_counts["PLAYER_DIALY_TASK_9"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_9"] || 0) + 1;
             this.save();
             respond({ status: 1 });
@@ -1591,51 +2024,46 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.OpenTowerBox) {
-            var targetLayer = Number((params && params[0]) || this.data.tower_cur_layer || 1);
-            if (!this.data.tower_layers) this.data.tower_layers = {};
-            if (!this.data.tower_layers[targetLayer]) {
-                var candidatePool = [10020, 10030, 10040, 10050, 10010];
-                var enemyHeros = [];
-                for (var ei = 0; ei < candidatePool.length; ei++) {
-                    enemyHeros.push({
-                        id: candidatePool[ei],
-                        hero_id: candidatePool[ei],
-                        lv: Math.min(100, 30 + targetLayer * 2),
-                        quality: Math.min(13, 7 + Math.floor(targetLayer / 5))
-                    });
-                }
-                this.data.tower_layers[targetLayer] = {
-                    player_id: this.getNumericId(),
-                    layer: targetLayer,
-                    has_pass: 1,
-                    player_name: "Thủ Vệ Tầng " + targetLayer,
-                    player_lv: Math.min(100, 40 + targetLayer * 2),
-                    player_icon: 80110010,
-                    box_1_id: 80101,
-                    box_2_id: 80201,
-                    box_3_id: 80301,
-                    box_4_id: 80302,
-                    heros: JSON.stringify(enemyHeros)
-                };
+            ensureNormalTowerState(this);
+            var curFrontLayer = Math.max(1, Math.min(35, Number(this.data.tower_cur_layer || 1)));
+            var targetLayer = (params && params[0] !== undefined && Number(params[0]) > 0)
+                ? Math.max(1, Math.min(35, Number(params[0])))
+                : ((this.data.tower_layers[curFrontLayer] && Number(this.data.tower_layers[curFrontLayer].has_pass || 0) === 1)
+                    ? curFrontLayer
+                    : Math.max(1, curFrontLayer - 1));
+
+            var lData = this.data.tower_layers ? this.data.tower_layers[targetLayer] : null;
+            if (!lData || Number(lData.has_pass || 0) !== 1) {
+                return respond({}, { code: 45004, msg: "Tầng này chưa vượt qua, không thể mở rương!" }), true;
             }
-            var lData = this.data.tower_layers[targetLayer];
-            lData.has_pass = 1;
-            var chosenKey = 0;
-            var boxIndex = 0;
+
+            var openedCount = 0;
+            var firstAvailableSlot = 0;
             for (var bi = 1; bi <= 4; bi++) {
-                if (Number(lData["box_" + bi + "_id"] || 0) > 0) {
-                    chosenKey = Number(lData["box_" + bi + "_id"]);
-                    boxIndex = bi;
-                    break;
+                var bVal = Number(lData["box_" + bi + "_id"] || 0);
+                if (bVal <= 0) openedCount++;
+                else if (!firstAvailableSlot) firstAvailableSlot = bi;
+            }
+            if (openedCount >= 4 || !firstAvailableSlot) {
+                return respond({}, { code: 45004, msg: "Bạn đã mở hết 4 rương của tầng này!" }), true;
+            }
+
+            var reqSlot = (params && params[1] !== undefined) ? Number(params[1]) : 0;
+            var boxIndex = (reqSlot >= 1 && reqSlot <= 4 && Number(lData["box_" + reqSlot + "_id"] || 0) > 0)
+                ? reqSlot
+                : firstAvailableSlot;
+            var chosenKey = Number(lData["box_" + boxIndex + "_id"]);
+
+            var boxCost = getTowerBoxCost(openedCount);
+            if (boxCost > 0) {
+                if (!this.canDeductStone(boxCost)) {
+                    return respond({}, { code: 1, msg: "Không đủ " + boxCost + " Kim Cương để mở rương!" }), true;
                 }
+                this.deductStone(boxCost, queuePush);
             }
-            if (!chosenKey) {
-                chosenKey = 80101;
-                boxIndex = 1;
-            }
+
             lData["box_" + boxIndex + "_id"] = 0;
 
-            // Cập nhật tower_cur_layer khi mở quà
             if (this.data.tower_cur_layer < 35 && this.data.tower_cur_layer <= targetLayer) {
                 this.data.tower_cur_layer = targetLayer + 1;
             }
@@ -1643,11 +2071,15 @@ const ArenaAndTowerHandler = {
             var bdItem = (typeof Config !== "undefined" && Config.box_drop_item && Config.box_drop_item[chosenKey]) ? Config.box_drop_item[chosenKey] : null;
             var itemData = null;
             if (bdItem) {
-                var granted = this.grantBoxDropReward(bdItem, queuePush);
+                // Rule 8 / LostTowerRewardBoxItem: reward shown and granted is 2x base drop amount
+                var doubledDrop = Object.assign({}, bdItem, {
+                    amount: Math.max(1, Number(bdItem.amount || 1)) * 2
+                });
+                var granted = this.grantBoxDropReward(doubledDrop, queuePush);
                 itemData = granted || {
-                    type: Number(bdItem.type || 1),
-                    item_id: Number(bdItem.item_id || 10030),
-                    amount: Math.max(1, Number(bdItem.amount || 2))
+                    type: Number(doubledDrop.type || 1),
+                    item_id: Number(doubledDrop.item_id || 10030),
+                    amount: Number(doubledDrop.amount || 2)
                 };
             } else {
                 itemData = { type: 1, item_id: 10030, amount: 10 };
@@ -1876,60 +2308,79 @@ const ArenaAndTowerHandler = {
 
         // 3. Đấu Trường Giới Hạn (LimitedArena*)
         if (cmd === "LimitedArenaInfo" || cmd === "LimitedArenaLineup" || cmd === "LimitedArenaClearCD" || cmd === "LimitedArenaBuyFights") {
+            var activeTheme = getActiveLimitedArenaTheme();
             var todayKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
             var allowedHeroIds = [];
             var heroesList = [];
-            for (var hid in this.data.heros) {
-                var hNum = Number(hid);
-                allowedHeroIds.push(hNum);
-                var hCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[hNum]) ? Config.hero[hNum] : null;
-                heroesList.push({
-                    id: hNum,
-                    name: hCfg ? hCfg.name : ("Ninja " + hNum),
-                    quality: this.data.heros[hNum].quality || 1,
-                    star: this.data.heros[hNum].star || 1,
+
+            // Prioritize player's owned heroes within this week's allowed theme first, then trial allowed heroes
+            var ownedAllowed = [];
+            var trialAllowed = [];
+            for (var ai = 0; ai < activeTheme.allowedIds.length; ai++) {
+                var aHid = activeTheme.allowedIds[ai];
+                var hCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[aHid]) ? Config.hero[aHid] : null;
+                var ownRec = (this.data.heros && this.data.heros[aHid]) ? this.data.heros[aHid] : null;
+                var entryObj = {
+                    id: aHid,
+                    name: hCfg ? hCfg.name : ("Ninja " + aHid),
+                    quality: ownRec ? (ownRec.quality || 1) : 1,
+                    star: ownRec ? (ownRec.star || 1) : 1,
                     type: hCfg ? hCfg.type : 1,
-                    owned: true
-                });
+                    owned: !!ownRec
+                };
+                if (ownRec) ownedAllowed.push(entryObj);
+                else trialAllowed.push(entryObj);
             }
-            var extraPool = [10010, 10020, 10030, 10040, 10050, 10070, 10080, 10090, 10100, 10110, 10120, 10130, 10140, 10150];
-            for (var epi = 0; epi < extraPool.length; epi++) {
-                var eid = extraPool[epi];
-                if (allowedHeroIds.indexOf(eid) === -1) {
-                    allowedHeroIds.push(eid);
-                    var eCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[eid]) ? Config.hero[eid] : null;
-                    heroesList.push({
-                        id: eid,
-                        name: eCfg ? eCfg.name : ("Ninja " + eid),
-                        quality: 1,
-                        star: 1,
-                        type: eCfg ? eCfg.type : 1,
-                        owned: !!this.data.heros[eid]
-                    });
-                }
+            var combinedPool = ownedAllowed.concat(trialAllowed);
+            for (var ci = 0; ci < combinedPool.length; ci++) {
+                allowedHeroIds.push(combinedPool[ci].id);
+                heroesList.push(combinedPool[ci]);
             }
 
-            var defaultTopIds = getSortedOwnedHeroIds(this).slice(0, 5);
-            if (!Array.isArray(this.data.lim_arena_def_ids) || this.data.lim_arena_def_ids.length === 0) {
-                var parsedOldDef = parseHeroIdInput(this.data.lim_arena_def);
-                this.data.lim_arena_def_ids = parsedOldDef.length > 0 ? parsedOldDef.slice(0, 5) : defaultTopIds.slice(0);
-            }
-            if (!Array.isArray(this.data.lim_arena_atk_ids) || this.data.lim_arena_atk_ids.length === 0) {
-                var parsedOldAtk = parseHeroIdInput(this.data.lim_arena_atk);
-                this.data.lim_arena_atk_ids = parsedOldAtk.length > 0 ? parsedOldAtk.slice(0, 5) : this.data.lim_arena_def_ids.slice(0);
-            }
-
+            var limFallbackIds = getLimitedFallbackIdsForData(this, this.data, activeTheme);
+            var rawOldDef = (Array.isArray(this.data.lim_arena_def_ids) && this.data.lim_arena_def_ids.length > 0)
+                ? this.data.lim_arena_def_ids
+                : parseHeroIdInput(this.data.lim_arena_def);
+            var cleanDefIds = sanitizeLimitedIds(rawOldDef, activeTheme.allowedSet, limFallbackIds, 5);
             var stateChanged = false;
+            if (!Array.isArray(this.data.lim_arena_def_ids) || this.data.lim_arena_def_ids.join(",") !== cleanDefIds.join(",")) {
+                this.data.lim_arena_def_ids = cleanDefIds;
+                stateChanged = true;
+            }
+
+            var rawOldAtk = (Array.isArray(this.data.lim_arena_atk_ids) && this.data.lim_arena_atk_ids.length > 0)
+                ? this.data.lim_arena_atk_ids
+                : parseHeroIdInput(this.data.lim_arena_atk);
+            var cleanAtkIds = sanitizeLimitedIds(rawOldAtk, activeTheme.allowedSet, cleanDefIds, 5);
+            if (!Array.isArray(this.data.lim_arena_atk_ids) || this.data.lim_arena_atk_ids.join(",") !== cleanAtkIds.join(",")) {
+                this.data.lim_arena_atk_ids = cleanAtkIds;
+                stateChanged = true;
+            }
+
             if (cmd === "LimitedArenaLineup" && params && params.length >= 2) {
                 var side = String(params[0]);
-                var rawIds = parseHeroIdInput(params[1]).filter(function (id) {
-                    return !!self.data.heros[id] || (typeof Config !== "undefined" && Config.hero && !!Config.hero[id]);
-                }).slice(0, 5);
-                if (rawIds.length > 0) {
-                    if (side === "defense") this.data.lim_arena_def_ids = rawIds;
-                    else this.data.lim_arena_atk_ids = rawIds;
-                    stateChanged = true;
+                var submittedIds = parseHeroIdInput(params[1]).slice(0, 5);
+                var bannedId = 0;
+                for (var si = 0; si < submittedIds.length; si++) {
+                    if (!activeTheme.allowedSet[submittedIds[si]]) {
+                        bannedId = submittedIds[si];
+                        break;
+                    }
                 }
+                if (bannedId > 0) {
+                    var banCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[bannedId]) ? Config.hero[bannedId] : null;
+                    var banName = banCfg ? banCfg.name : ("#" + bannedId);
+                    return respond({}, {
+                        code: 1,
+                        msg: "Ninja " + banName + " bị cấm trong " + activeTheme.name + "!"
+                    }), true;
+                }
+                if (submittedIds.length === 0) {
+                    return respond({}, { code: 1, msg: "Đội hình phải có ít nhất 1 Ninja hợp lệ!" }), true;
+                }
+                if (side === "defense") this.data.lim_arena_def_ids = submittedIds;
+                else this.data.lim_arena_atk_ids = submittedIds;
+                stateChanged = true;
             }
 
             var nowSec = Math.floor(Date.now() / 1000);
@@ -1968,6 +2419,7 @@ const ArenaAndTowerHandler = {
                 var arr = [];
                 for (var idx = 0; idx < idArr.length; idx++) {
                     var tid = Number(idArr[idx]);
+                    if (!activeTheme.allowedSet[tid]) continue;
                     if (self.data.heros[tid]) arr.push(self.computeHeroPayload(tid));
                     else arr.push(generateCompetentHeroRecord(tid, 50, 6, 3));
                 }
@@ -1978,15 +2430,25 @@ const ArenaAndTowerHandler = {
             var limRank = getOrInitPlayerModeRank(this.data, "lim_arena");
             if (stateChanged) this.save();
 
-            var opponents = buildOpponentMatchups(this, "lim_arena", limRank, 1, { rotate: false });
+            var limCacheKey = this.getNumericId() + "_lim_arena";
+            var cachedLimList = _cachedMatchups[limCacheKey];
+            var needCacheRebuild = !cachedLimList || cachedLimList._limRev !== activeTheme.revision || cachedLimList._limWeek !== activeTheme.weekKey;
+            var opponents = buildOpponentMatchups(this, "lim_arena", limRank, 1, { rotate: needCacheRebuild });
+            opponents._limRev = activeTheme.revision;
+            opponents._limWeek = activeTheme.weekKey;
+
             var dailyFights = 5 + buyCount * 5;
             var fightCount = Number(this.data.lim_arena_fight_count || 0);
 
             respond({
                 day: todayKey,
-                periodKey: todayKey,
+                periodKey: activeTheme.weekKey,
                 resetMode: "daily",
-                revision: 1,
+                revision: activeTheme.revision,
+                themeId: activeTheme.id,
+                themeKey: activeTheme.key,
+                themeName: activeTheme.name,
+                themeDesc: activeTheme.description,
                 heroIds: allowedHeroIds,
                 heroes: heroesList,
                 rank: limRank,
@@ -2000,10 +2462,11 @@ const ArenaAndTowerHandler = {
                 buyFights: 5,
                 buyAvailable: buyCount < buyLimit,
                 clearCooldownCost: clearCost,
-                cooldown: cooldownSec,
+                cooldown: 600,
+                cooldownRemaining: cooldownSec,
                 lastFightTime: lastFightSec,
                 appleRewardAt: "00:00 UTC+7",
-                appleRewardRule: "Đấu tối thiểu 3 trận/ngày nhận Táo qua Thư lúc 00:00 UTC+7",
+                appleRewardRule: "[" + activeTheme.name + "] Chỉ dùng " + allowedHeroIds.length + " Ninja hợp lệ. Đấu >= 3 trận/ngày nhận Táo lúc 00:00 UTC+7",
                 exchangeHint: "Sự kiện Đổi Thưởng: 100 Táo = 1 Key Vàng",
                 attack: this.data.lim_arena_atk,
                 defense: this.data.lim_arena_def,
@@ -2016,25 +2479,49 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "LimitedArenaOpponents") {
+            var activeOppTheme = getActiveLimitedArenaTheme();
             var todayOppKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
             var oppRank = getOrInitPlayerModeRank(this.data, "lim_arena");
             var rotatedOpponents = buildOpponentMatchups(this, "lim_arena", oppRank, 1, { rotate: true });
+            rotatedOpponents._limRev = activeOppTheme.revision;
+            rotatedOpponents._limWeek = activeOppTheme.weekKey;
             respond({
                 day: todayOppKey,
-                revision: 1,
+                revision: activeOppTheme.revision,
+                themeId: activeOppTheme.id,
+                themeKey: activeOppTheme.key,
+                themeName: activeOppTheme.name,
                 fighters: rotatedOpponents
             });
             return true;
         }
 
         if (cmd === "LimitedArenaFight") {
-            resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
-            var savedAtkIds = (Array.isArray(this.data.lim_arena_atk_ids) && this.data.lim_arena_atk_ids.length > 0)
-                ? this.data.lim_arena_atk_ids
-                : parseHeroIdInput(this.data.lim_arena_atk);
-            if (savedAtkIds.length === 0) {
-                savedAtkIds = getSortedOwnedHeroIds(this).slice(0, 5);
+            var activeFightTheme = getActiveLimitedArenaTheme();
+            var todayFightKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
+            var curFights = Number(this.data.lim_arena_fight_count || 0);
+            var curBuys = Number(this.data.lim_arena_buy_count || 0);
+            var maxDailyFights = 5 + curBuys * 5;
+            if (curFights >= maxDailyFights) {
+                return respond({}, { code: 1, msg: "Đã hết lượt khiêu chiến Đấu Trường Giới Hạn hôm nay!" }), true;
             }
+            var nowFightSec = Math.floor(Date.now() / 1000);
+            var prevFightSec = Number(this.data.lim_arena_last_fight_time || 0);
+            if (prevFightSec > 0 && (nowFightSec - prevFightSec) < 600) {
+                var waitSec = 600 - (nowFightSec - prevFightSec);
+                return respond({}, { code: 1, msg: "Đang hồi chiêu (" + waitSec + "s). Hãy dùng Xóa CD hoặc chờ!" }), true;
+            }
+
+            var fightFallbackIds = getLimitedFallbackIdsForData(this, this.data, activeFightTheme);
+            var savedAtkIds = sanitizeLimitedIds(
+                (Array.isArray(this.data.lim_arena_atk_ids) && this.data.lim_arena_atk_ids.length > 0)
+                    ? this.data.lim_arena_atk_ids
+                    : this.data.lim_arena_atk,
+                activeFightTheme.allowedSet,
+                fightFallbackIds,
+                5
+            );
+            this.data.lim_arena_atk_ids = savedAtkIds;
             var atkHeros = savedAtkIds.slice(0, 5).map(function (hid) {
                 return self.data.heros[hid]
                     ? self.computeHeroPayload(hid)
@@ -2043,19 +2530,43 @@ const ArenaAndTowerHandler = {
 
             var limTargetId = (params && params[0] !== undefined) ? Number(params[0]) : 0;
             var cachedOpp = findCachedOpponent(this, "lim_arena", limTargetId);
-            if (!cachedOpp) {
-                var freshOpps = buildOpponentMatchups(this, "lim_arena", getOrInitPlayerModeRank(this.data, "lim_arena"), 1, { rotate: false });
-                cachedOpp = freshOpps[0];
+            var cachedHasBanned = false;
+            if (cachedOpp && Array.isArray(cachedOpp.def_heros)) {
+                for (var ci = 0; ci < cachedOpp.def_heros.length; ci++) {
+                    var chid = Number(cachedOpp.def_heros[ci].hero_id || cachedOpp.def_heros[ci].id || 0);
+                    if (!activeFightTheme.allowedSet[chid]) {
+                        cachedHasBanned = true;
+                        break;
+                    }
+                }
+            } else {
+                cachedHasBanned = true;
             }
-            var defHeros = (cachedOpp && cachedOpp.def_heros && cachedOpp.def_heros.length > 0)
-                ? cachedOpp.def_heros
-                : [generateCompetentHeroRecord(10020, 50, 6, 3)];
+            if (!cachedOpp || cachedHasBanned) {
+                var freshOpps = buildOpponentMatchups(this, "lim_arena", getOrInitPlayerModeRank(this.data, "lim_arena"), 1, { rotate: true });
+                freshOpps._limRev = activeFightTheme.revision;
+                freshOpps._limWeek = activeFightTheme.weekKey;
+                cachedOpp = findCachedOpponent(this, "lim_arena", limTargetId) || freshOpps[0];
+            }
+            var defHeros = [];
+            if (cachedOpp && Array.isArray(cachedOpp.def_heros)) {
+                for (var di = 0; di < cachedOpp.def_heros.length; di++) {
+                    var dh = cachedOpp.def_heros[di];
+                    var dhid = Number(dh.hero_id || dh.id || 0);
+                    if (activeFightTheme.allowedSet[dhid]) defHeros.push(dh);
+                }
+            }
+            if (defHeros.length === 0) {
+                var emergDefIds = activeFightTheme.allowedIds.slice(0, 5);
+                for (var edi = 0; edi < emergDefIds.length; edi++) {
+                    defHeros.push(generateCompetentHeroRecord(emergDefIds[edi], 50, 6, 3));
+                }
+            }
 
             var limSeed = Math.floor(Math.random() * 900000) + 100000;
             var sim = simulateArenaBattle(atkHeros, defHeros, limSeed);
             var isWin = sim.isWin ? 1 : 0;
-            var nowFightSec = Math.floor(Date.now() / 1000);
-            this.data.lim_arena_fight_count = Number(this.data.lim_arena_fight_count || 0) + 1;
+            this.data.lim_arena_fight_count = curFights + 1;
             this.data.lim_arena_last_fight_time = nowFightSec;
 
             if (isWin === 1) {
@@ -2067,6 +2578,7 @@ const ArenaAndTowerHandler = {
             var limHistRes = applyRankSwapAndRecordHistory("lim_arena", this, cachedOpp, {
                 nowSec: nowFightSec,
                 isWin: isWin,
+                seed: limSeed,
                 atkTeams: [atkHeros],
                 defTeams: [defHeros],
                 roundReplays: [limReplayStr],
@@ -2075,11 +2587,18 @@ const ArenaAndTowerHandler = {
 
             this.save();
             respond({
+                day: todayFightKey,
+                revision: activeFightTheme.revision,
+                themeId: activeFightTheme.id,
+                themeKey: activeFightTheme.key,
+                themeName: activeFightTheme.name,
                 isWin: isWin,
                 newRank: limHistRes.newRank,
                 rankChange: limHistRes.rankChange,
                 replayId: limHistRes.historyId,
                 fightCount: Number(this.data.lim_arena_fight_count || 0),
+                dailyFights: maxDailyFights,
+                cooldown: 600,
                 lastFightTime: nowFightSec,
                 seed: limSeed,
                 reward: isWin === 1 ? { items: [{ type: 1, item_id: 10150, amount: 50 }] } : {},
@@ -2089,11 +2608,15 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === "LimitedArenaRank" || cmd === "LimitedArenaHistory") {
+            var activeRankTheme = getActiveLimitedArenaTheme();
             var todayRankKey = resetDailyArenaCountersIfNeeded(this.data, "lim_arena");
             var limLeaderboard = buildLeaderboardEntries(this, "lim_arena").slice(0, 30);
             respond({
                 day: todayRankKey,
-                revision: 1,
+                revision: activeRankTheme.revision,
+                themeId: activeRankTheme.id,
+                themeKey: activeRankTheme.key,
+                themeName: activeRankTheme.name,
                 ranks: limLeaderboard,
                 history: Array.isArray(this.data.lim_arena_history) ? this.data.lim_arena_history : []
             });
@@ -3458,9 +3981,7 @@ const ArenaAndTowerHandler = {
             var isCrossDarkCD = (cmd === "CrossClearDarkArenaFightCD");
             var cCdVar = isCrossDarkCD ? "CS_DARK_ARENA_CD_COST_STONE" : "CS_ARENA_CD_COST_STONE";
             var cCdDefault = isCrossDarkCD ? 100 : 50;
-            var cCdCost = (typeof Config !== "undefined" && Config.global_var && Config.global_var[cCdVar])
-                ? Number(Config.global_var[cCdVar])
-                : cCdDefault;
+            var cCdCost = Math.max(0, getGlobalVarNumber(cCdVar, cCdDefault));
             if (cCdCost > 0) {
                 if (!this.canDeductStone(cCdCost)) {
                     return respond({}, { code: 1, msg: "Không đủ Kim Cương để xóa hồi chiêu!" }), true;
@@ -3475,7 +3996,14 @@ const ArenaAndTowerHandler = {
         }
 
         return false;
-    }
+    },
+    LIMITED_ARENA_THEMES: LIMITED_ARENA_THEMES,
+    getActiveLimitedArenaTheme: getActiveLimitedArenaTheme,
+    setLimitedArenaThemeOverride: setLimitedArenaThemeOverride,
+    getTowerScheduleState: getTowerScheduleState,
+    ensureNormalTowerState: ensureNormalTowerState,
+    getKageKeeperMapByLayer: getKageKeeperMapByLayer,
+    getTowerBoxCost: getTowerBoxCost
 };
 
 module.exports = ArenaAndTowerHandler;
