@@ -6,7 +6,7 @@
 const { syncConfigFromUpstream } = require("../config/configLoader");
 
 const EventAndSignInHandler = {
-    getPlayableHeroSoulEntries: function() {
+    getPlayableHeroSoulEntries: function () {
         var bySoulId = {};
         if (typeof Config !== "undefined") {
             if (Config.item) {
@@ -43,16 +43,16 @@ const EventAndSignInHandler = {
                 }
             }
         }
-        var list = Object.keys(bySoulId).map(function(k) { return bySoulId[k]; });
-        list.sort(function(a, b) { return b.soulId - a.soulId; });
+        var list = Object.keys(bySoulId).map(function (k) { return bySoulId[k]; });
+        list.sort(function (a, b) { return b.soulId - a.soulId; });
         return list;
     },
 
-    getLatestPlayableHeroSoulIds: function() {
-        return this.getPlayableHeroSoulEntries().map(function(e) { return e.soulId; });
+    getLatestPlayableHeroSoulIds: function () {
+        return this.getPlayableHeroSoulEntries().map(function (e) { return e.soulId; });
     },
 
-    syncOnlineLuckyWithLatestHero: function() {
+    syncOnlineLuckyWithLatestHero: function () {
         var soulEntries = this.getPlayableHeroSoulEntries();
         if (soulEntries.length === 0) return soulEntries;
 
@@ -141,7 +141,7 @@ const EventAndSignInHandler = {
         return soulEntries;
     },
 
-    grantAllHeroSouls: function(soulAmt, specificId, rewardItems, queuePush) {
+    grantAllHeroSouls: function (soulAmt, specificId, rewardItems, queuePush) {
         var entries = this.getPlayableHeroSoulEntries();
         for (var i = 0; i < entries.length; i++) {
             var entry = entries[i];
@@ -155,7 +155,7 @@ const EventAndSignInHandler = {
         }
     },
 
-    grantAllSecrets: function(giveExpCnt, rewardItems, queuePush) {
+    grantAllSecrets: function (giveExpCnt, rewardItems, queuePush) {
         var expTacticIds = [30104, 30105, 30106, 30107];
         for (var eti = 0; eti < expTacticIds.length; eti++) {
             var expId = expTacticIds[eti];
@@ -189,7 +189,7 @@ const EventAndSignInHandler = {
         }
     },
 
-    grantAllGems: function(gemGiveCnt, rewardItems, queuePush) {
+    grantAllGems: function (gemGiveCnt, rewardItems, queuePush) {
         if (typeof Config !== "undefined" && Config.equip) {
             for (var gid in Config.equip) {
                 var gCfg = Config.equip[gid];
@@ -205,13 +205,13 @@ const EventAndSignInHandler = {
         this.syncGemsAndSecrets(queuePush);
     },
 
-    grantAllAvatars: function(rewardItems, queuePush) {
+    grantAllAvatars: function (rewardItems, queuePush) {
         var grantedSet = {};
         if (typeof Config !== "undefined") {
             if (Config.item) {
-                var avIds = Object.keys(Config.item).map(Number).filter(function(iid) {
+                var avIds = Object.keys(Config.item).map(Number).filter(function (iid) {
                     return Config.item[iid] && Number(Config.item[iid].item_type) === 11;
-                }).sort(function(a, b) { return b - a; });
+                }).sort(function (a, b) { return b - a; });
                 for (var ai = 0; ai < avIds.length; ai++) {
                     var avId = avIds[ai];
                     grantedSet[avId] = true;
@@ -241,7 +241,7 @@ const EventAndSignInHandler = {
         }
     },
 
-    grantAllItemsAndEquips: function(rewardItems, queuePush) {
+    grantAllItemsAndEquips: function (rewardItems, queuePush) {
         if (typeof Config !== "undefined" && Config.item) {
             for (var iid in Config.item) {
                 var it = Config.item[iid];
@@ -280,7 +280,7 @@ const EventAndSignInHandler = {
         }
     },
 
-    computeEventWindow: function(ev, nowSec) {
+    computeEventWindow: function (ev, nowSec) {
         if (!ev) return { from_time: 0, to_time: 0 };
         var rec = Number(ev.recurrence_seconds || 0);
         if (rec > 0) {
@@ -305,7 +305,7 @@ const EventAndSignInHandler = {
         return { from_time: f, to_time: t };
     },
 
-    ensureDailyAndEventReset: function() {
+    ensureDailyAndEventReset: function () {
         if (!this.data) return;
         var nowMs = Date.now();
         var nowSec = Math.floor(nowMs / 1000);
@@ -385,7 +385,7 @@ const EventAndSignInHandler = {
         }
     },
 
-    handleEventAndSignInCommand: function(cmd, params, respond, queuePush) {
+    handleEventAndSignInCommand: function (cmd, params, respond, queuePush) {
         if (typeof this.ensureDailyAndEventReset === "function") {
             this.ensureDailyAndEventReset();
         }
@@ -527,7 +527,7 @@ const EventAndSignInHandler = {
             var evGroups2 = this.onlineEvents || [];
             var myPid = this.getNumericId();
             var selfRef = this;
-            var computeEventProcessVal = function(evObj) {
+            var computeEventProcessVal = function (evObj) {
                 var eid = Number(evObj.id);
                 var eType = Number(evObj.types);
                 var condStr = String(evObj.conditions || "1");
@@ -849,13 +849,13 @@ const EventAndSignInHandler = {
             if (this.data.bp_level === undefined) this.data.bp_level = 5;
             if (this.data.bp_premium === undefined) this.data.bp_premium = true;
 
-            var hasClaimed = function(claimsArr, tr, tk) {
+            var hasClaimed = function (claimsArr, tr, tk) {
                 for (var ci = 0; ci < claimsArr.length; ci++) {
                     if (claimsArr[ci].tier == tr && claimsArr[ci].track == tk) return true;
                 }
                 return false;
             };
-            var grantBpReward = function(selfRef, rw) {
+            var grantBpReward = function (selfRef, rw) {
                 if (!rw) return;
                 if (rw.kind === "sp") {
                     selfRef.addSp(Number(rw.amount || 100), queuePush);
@@ -1052,7 +1052,7 @@ const EventAndSignInHandler = {
 
             // 5. GMGem / GMNgoc / GMDa: Cộng Đá khảm / Ngọc (type 3 trong Config.equip)
             if (gmCmd === "GEM" || gmCmd === "GEMS" || gmCmd === "DA" || gmCmd === "NGOC" || gmCmd === "DAKHAM") {
-                var gemGiveCnt = (val > 0 && val <= 50) ? val : 6;
+                var gemGiveCnt = (val > 0 && val <= 50) ? val : 100;
                 this.grantAllGems(gemGiveCnt, rewardItems, queuePush);
                 respond({ items: rewardItems });
                 return true;
@@ -1100,7 +1100,7 @@ const EventAndSignInHandler = {
                 return true;
             }
 
-            var applyVipState = function(targetVip) {
+            var applyVipState = function (targetVip) {
                 targetVip = Math.min(20, Math.max(0, targetVip));
                 self.data.vip_lv = targetVip;
                 if (typeof Config !== "undefined" && Config.vipLevel && Config.vipLevel[targetVip]) {
@@ -1113,7 +1113,7 @@ const EventAndSignInHandler = {
                 self.data.had_vip13_gift = 1;
             };
 
-            var applyAllCardsState = function() {
+            var applyAllCardsState = function () {
                 var nowSecCard = Math.floor(Date.now() / 1000);
                 if (!self.data.card_expire_times) self.data.card_expire_times = {};
                 self.data.card_expire_times.PLAYER_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
@@ -1190,7 +1190,7 @@ const EventAndSignInHandler = {
 
             // 14. GMSync / GMUpdate / GMHotfix: Đồng bộ Config mới nhất từ bản chính & tặng 100 hồn 6 tướng mới nhất
             if (gmCmd === "SYNC" || gmCmd === "UPDATE" || gmCmd === "HOTFIX") {
-                syncConfigFromUpstream({ force: true }, function(syncErr, syncRes) {
+                syncConfigFromUpstream({ force: true }, function (syncErr, syncRes) {
                     if (syncErr) {
                         console.error("[-] GMSync error:", syncErr.message);
                     }
@@ -1238,14 +1238,14 @@ const EventAndSignInHandler = {
 
         // 10. Nhiệm Vụ Ninja ("Nhiệm Vụ Ninja" - MissionView.js)
         if (cmd === SVRCMD.TaskInfo || cmd === SVRCMD.RefreshTask || cmd === SVRCMD.TaskSweep || cmd === SVRCMD.AfterTaskFight) {
-            var getVnDateStr = function() {
+            var getVnDateStr = function () {
                 var d = new Date(Date.now() + 7 * 3600 * 1000);
                 var y = d.getUTCFullYear();
                 var m = String(d.getUTCMonth() + 1).padStart(2, "0");
                 var day = String(d.getUTCDate()).padStart(2, "0");
                 return y + "-" + m + "-" + day;
             };
-            var getGlobalTaskVar = function(key, fallback) {
+            var getGlobalTaskVar = function (key, fallback) {
                 if (typeof Config !== "undefined" && Config.global_var) {
                     if (Config.global_var[key] && Config.global_var[key].v_string !== undefined) {
                         return Number(Config.global_var[key].v_string);
@@ -1259,7 +1259,7 @@ const EventAndSignInHandler = {
                 }
                 return fallback;
             };
-            var getAwakeTaskSet = function() {
+            var getAwakeTaskSet = function () {
                 var set = {};
                 if (typeof Config !== "undefined" && Config.hero) {
                     for (var hid in Config.hero) {
@@ -1275,11 +1275,11 @@ const EventAndSignInHandler = {
                 }
                 return set;
             };
-            var isSingleHeroLocked = function(taskCfg) {
+            var isSingleHeroLocked = function (taskCfg) {
                 var lim = taskCfg && taskCfg.limit_heros ? String(taskCfg.limit_heros).trim() : "0";
                 return (lim !== "" && lim !== "0" && lim.indexOf(";") === -1);
             };
-            var pickNinjaMissionTaskId = function(mode, excludeTaskId) {
+            var pickNinjaMissionTaskId = function (mode, excludeTaskId) {
                 if (typeof Config === "undefined" || !Config.task) return 11011;
                 var awakeSet = getAwakeTaskSet();
                 var pool = [];
@@ -1308,7 +1308,7 @@ const EventAndSignInHandler = {
                 }
                 if (pool.length === 0) return 11011;
                 if (excludeTaskId && pool.length > 1) {
-                    var filtered = pool.filter(function(item) { return item.id !== Number(excludeTaskId); });
+                    var filtered = pool.filter(function (item) { return item.id !== Number(excludeTaskId); });
                     if (filtered.length > 0) pool = filtered;
                 }
                 var totalWeight = 0;
@@ -1404,7 +1404,7 @@ const EventAndSignInHandler = {
                 var aHeroId = Number(this.data.active_awake_hero);
                 if (!this.data.awake_task_progress) this.data.awake_task_progress = {};
                 var aCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[aHeroId]) ? Config.hero[aHeroId] : null;
-                var aTaskIds = (aCfg && aCfg.awake_task_ids) ? String(aCfg.awake_task_ids).split("/").map(Number).filter(function(x) { return x > 0; }) : [];
+                var aTaskIds = (aCfg && aCfg.awake_task_ids) ? String(aCfg.awake_task_ids).split("/").map(Number).filter(function (x) { return x > 0; }) : [];
                 if (this.data.awake_task_progress[aHeroId] !== 1) {
                     if (!this.data.awake_task_progress[aHeroId] || typeof this.data.awake_task_progress[aHeroId] !== "object") {
                         this.data.awake_task_progress[aHeroId] = {};

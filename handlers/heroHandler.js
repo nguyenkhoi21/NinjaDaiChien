@@ -200,7 +200,7 @@ const HeroHandler = {
         }
 
         // Eight Gates (BaMen) stats
-        var bgLv = Number(h.bagate_level || 0);
+        var bgLv = Math.min(200, Math.max(0, Number(h.bagate_level || 0)));
         if (bgLv > 0 && typeof Config !== "undefined" && Config.bamen) {
             for (var g = 1; g <= bgLv; g++) {
                 var gCfg = Config.bamen[g];
@@ -714,44 +714,52 @@ const HeroHandler = {
 
         if (cmd === SVRCMD.UpgradeBaMen) {
             var heroId = Number((params && params[0]) || 0);
-            var targetLv = Number((params && params[1]) || 0);
-            var respLv = 1;
-            if (this.data.heros[heroId]) {
-                var h = this.data.heros[heroId];
-                var curBg = Number(h.bagate_level || 0);
-                var nextBg = targetLv > 0 ? targetLv : (curBg + 1);
-                if (nextBg > 200) nextBg = 200;
-
-                var bgCfg = (typeof Config !== "undefined" && Config.bamen && Config.bamen[nextBg]) ? Config.bamen[nextBg] : null;
-                var costGold = bgCfg ? Number(bgCfg.gold || 0) : (nextBg * 10000);
-                var costStone = bgCfg ? Number(bgCfg.stone || 0) : 0;
-                var costSoul = bgCfg ? Number(bgCfg.soul || 0) : 0;
-                var costItemId = bgCfg ? Number(bgCfg.item_id || 10140) : 10140;
-                var costItemCount = bgCfg ? Number(bgCfg.item_count || 0) : 5;
-
-                if (costGold > 0 && !self.canDeductGold(costGold)) {
-                    return respond({}, { code: 1, msg: "Không đủ Vàng để mở Bát Môn!" }), true;
-                }
-                if (costStone > 0 && !self.canDeductStone(costStone)) {
-                    return respond({}, { code: 1, msg: "Không đủ Kim Cương để mở Bát Môn!" }), true;
-                }
-                if (costItemId > 0 && costItemCount > 0 && this.getItemAmount(costItemId) >= costItemCount) {
-                    self.deductItem(costItemId, costItemCount, queuePush);
-                }
-                if (costSoul > 0) {
-                    var soulIdBg = this.findSoulItemId(heroId);
-                    if (this.getItemAmount(soulIdBg) >= costSoul) {
-                        self.deductItem(soulIdBg, costSoul, queuePush);
-                    }
-                }
-                if (costGold > 0) self.deductGold(costGold, queuePush);
-                if (costStone > 0) self.deductStone(costStone, queuePush);
-
-                h.bagate_level = nextBg;
-                respLv = nextBg;
-                queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
+            var h = this.data.heros[heroId];
+            if (!h) {
+                return respond({}, { code: 1, msg: "Không tìm thấy ninja!" }), true;
             }
-            respond({ status: 1, bagate_level: respLv });
+
+            var heroLv = Number(h.lv || h.level || 1);
+            if (heroLv < 85) {
+                return respond({}, { code: 1, msg: "Ninja cần đạt cấp 85 mới có thể mở Bát Môn!" }), true;
+            }
+            if (Number(h.has_awake || 0) !== 1 && Number(h.quality || 1) < 12) {
+                return respond({}, { code: 1, msg: "Ninja cần thức tỉnh mới có thể mở Bát Môn!" }), true;
+            }
+
+            var curBg = Number(h.bagate_level || 0);
+            if (curBg >= 200) {
+                return respond({}, { code: 1, msg: "Bát Môn đã đạt tối đa 200 cấp!" }), true;
+            }
+            var nextBg = curBg + 1;
+
+            var bgCfg = (typeof Config !== "undefined" && Config.bamen && Config.bamen[nextBg]) ? Config.bamen[nextBg] : null;
+            if (!bgCfg) {
+                return respond({}, { code: 1, msg: "Không tìm thấy dữ liệu cấu hình Bát Môn!" }), true;
+            }
+
+            var costGold = Number(bgCfg.gold || 0);
+            var costStone = Number(bgCfg.stone || 0);
+            var costItemId = Number(bgCfg.item_id || 10140);
+            var costItemCount = Number(bgCfg.item_count || 0);
+
+            if (costItemId > 0 && costItemCount > 0 && !self.canDeductItem(costItemId, costItemCount)) {
+                return respond({}, { code: 1, msg: "Không đủ đạo cụ để mở Bát Môn!" }), true;
+            }
+            if (costGold > 0 && !self.canDeductGold(costGold)) {
+                return respond({}, { code: 1, msg: "Không đủ Vàng để mở Bát Môn!" }), true;
+            }
+            if (costStone > 0 && !self.canDeductStone(costStone)) {
+                return respond({}, { code: 1, msg: "Không đủ Kim Cương để mở Bát Môn!" }), true;
+            }
+
+            if (costItemId > 0 && costItemCount > 0) self.deductItem(costItemId, costItemCount, queuePush);
+            if (costGold > 0) self.deductGold(costGold, queuePush);
+            if (costStone > 0) self.deductStone(costStone, queuePush);
+
+            h.bagate_level = nextBg;
+            queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
+            respond({ status: 1, bagate_level: nextBg });
             return true;
         }
 
