@@ -280,7 +280,115 @@ const EventAndSignInHandler = {
         }
     },
 
+    computeEventWindow: function(ev, nowSec) {
+        if (!ev) return { from_time: 0, to_time: 0 };
+        var rec = Number(ev.recurrence_seconds || 0);
+        if (rec > 0) {
+            if (ev._orig_from_time === undefined) {
+                ev._orig_from_time = Number(ev.from_time || 0);
+                ev._orig_to_time = Number(ev.to_time || 0);
+            }
+            if (rec === 86400) {
+                var vnOffset = 7 * 3600;
+                var vnDayStart = Math.floor((nowSec + vnOffset) / 86400) * 86400 - vnOffset;
+                return { from_time: vnDayStart, to_time: vnDayStart + 86400 - 1 };
+            }
+            var origFrom = ev._orig_from_time;
+            var origTo = ev._orig_to_time;
+            var k = Math.floor((nowSec - origFrom) / rec);
+            return { from_time: origFrom + k * rec, to_time: origTo + k * rec };
+        }
+        var f = Number(ev.from_time || 0);
+        var t = Number(ev.to_time || 0);
+        if (f > nowSec) f = nowSec - 3600;
+        if (t > 0 && t < nowSec) t = nowSec + 86400 * 30;
+        return { from_time: f, to_time: t };
+    },
+
+    ensureDailyAndEventReset: function() {
+        if (!this.data) return;
+        var nowMs = Date.now();
+        var nowSec = Math.floor(nowMs / 1000);
+        var d = new Date(nowMs + 7 * 3600 * 1000);
+        var todayStr = d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0") + "-" + String(d.getUTCDate()).padStart(2, "0");
+
+        if (this.data.last_reset_date !== todayStr) {
+            this.data.last_reset_date = todayStr;
+            if (this.data.daily_counts && typeof this.data.daily_counts === "object") {
+                for (var dk in this.data.daily_counts) {
+                    if (
+                        dk === "MONTH_CARD_FOREVER" ||
+                        dk.indexOf("_EXPIRE_TIME") !== -1 ||
+                        dk.indexOf("PLAYER_GOODS_COUNT_ID_") === 0
+                    ) {
+                        continue;
+                    }
+                    delete this.data.daily_counts[dk];
+                }
+            } else {
+                this.data.daily_counts = {};
+            }
+            this.data.daily_recharge_usd = 0;
+            this.data.bronze_count = 0;
+            this.data.task_refresh_date = todayStr;
+            this.data.task_gold_refresh_count = 0;
+            this.data.task_today_count = 0;
+        }
+
+        if (!this.data.event_cycle_keys) this.data.event_cycle_keys = {};
+        if (!this.data.event_claims) this.data.event_claims = {};
+        if (!this.data.event_process) this.data.event_process = {};
+
+        var evGroups = this.onlineEvents || [];
+        var seenKind = {};
+        for (var gi = 0; gi < evGroups.length; gi++) {
+            var grp = evGroups[gi];
+            if (!Array.isArray(grp)) continue;
+            for (var ej = 0; ej < grp.length; ej++) {
+                var ev = grp[ej];
+                if (!ev || !ev.recurrence_seconds) continue;
+                var kind = Number(ev.kind || 0);
+                if (!kind || seenKind[kind]) continue;
+                seenKind[kind] = true;
+
+                var win = this.computeEventWindow(ev, nowSec);
+                if (this.data.event_cycle_keys[kind] !== win.from_time) {
+                    this.data.event_cycle_keys[kind] = win.from_time;
+                    // Xóa trạng thái đã nhận của tất cả mốc thuộc kind này khi sang chu kỳ mới
+                    for (var gj = 0; gj < evGroups.length; gj++) {
+                        var g2 = evGroups[gj];
+                        if (!Array.isArray(g2)) continue;
+                        for (var ek = 0; ek < g2.length; ek++) {
+                            if (g2[ek] && Number(g2[ek].kind) === kind) {
+                                delete this.data.event_claims[Number(g2[ek].id)];
+                            }
+                        }
+                    }
+                    if (kind === 1840) this.data.daily_recharge_usd = 0;
+                    else if (kind === 1820) this.data.recharge_3d_usd = 0;
+                    else if (kind === 1810) this.data.recharge_weekly_usd = 0;
+                    else if (kind === 1830) this.data.single_recharge_counts = {};
+                    else if (kind === 1060) {
+                        this.data.total_stone_spent = 0;
+                        this.data.event_process[5] = 0;
+                    } else if (kind === 1070) {
+                        this.data.total_gold_spent = 0;
+                        this.data.event_process[6] = 0;
+                    } else if (kind === 1050) this.data.total_arena_fights = 0;
+                    else if (kind === 1010) this.data.total_buy_sp = 0;
+                    else if (kind === 1020) this.data.total_buy_gold = 0;
+                    else if (kind === 1030) this.data.total_dark_arena_fights = 0;
+                    else if (kind === 1000) this.data.total_lucky_spins = 0;
+                    else if (kind === 1040) this.data.total_school_count = 0;
+                }
+            }
+        }
+    },
+
     handleEventAndSignInCommand: function(cmd, params, respond, queuePush) {
+        if (typeof this.ensureDailyAndEventReset === "function") {
+            this.ensureDailyAndEventReset();
+        }
         var self = this;
 
         // 1. Điểm danh hàng ngày (SignInView.js)
@@ -399,16 +507,15 @@ const EventAndSignInHandler = {
         if (cmd === SVRCMD.GetAllEvents) {
             this.syncOnlineLuckyWithLatestHero();
             var nowSec = Math.floor(Date.now() / 1000);
-            var minFrom = nowSec - 86400 * 7;
-            var minTo = nowSec + 86400 * 180;
             var evGroups = this.onlineEvents || [];
             for (var gi = 0; gi < evGroups.length; gi++) {
                 var grp = evGroups[gi];
                 if (!grp) continue;
                 for (var ej = 0; ej < grp.length; ej++) {
                     var ev = grp[ej];
-                    if (ev.from_time > nowSec) ev.from_time = minFrom;
-                    if (ev.to_time < minTo) ev.to_time = minTo;
+                    var win = this.computeEventWindow(ev, nowSec);
+                    ev.from_time = win.from_time;
+                    ev.to_time = win.to_time;
                 }
             }
             respond({ events: evGroups });
@@ -428,7 +535,13 @@ const EventAndSignInHandler = {
                 switch (eType) {
                     case 1: // TYPE_TOTAL_RECHARG ($ USD accumulated)
                         if (Number(evObj.kind) === 1840) {
-                            return Number(selfRef.data.daily_recharge_usd || selfRef.data.total_recharge_usd || 0);
+                            return Number(selfRef.data.daily_recharge_usd || 0);
+                        }
+                        if (Number(evObj.kind) === 1820) {
+                            return Number(selfRef.data.recharge_3d_usd || 0);
+                        }
+                        if (Number(evObj.kind) === 1810) {
+                            return Number(selfRef.data.recharge_weekly_usd || 0);
                         }
                         return Number(selfRef.data.total_recharge_usd || 0);
                     case 2: // TYPE_DAY_RECHARG
@@ -442,9 +555,6 @@ const EventAndSignInHandler = {
                             var sMap = selfRef.data.single_recharge_counts || {};
                             if (sMap[reqUsd] || sMap[reqRound]) {
                                 return Number(sMap[reqUsd] || sMap[reqRound] || 0);
-                            }
-                            if (Number(selfRef.data.total_recharge_usd || 0) >= reqRound && reqRound > 0) {
-                                return 1;
                             }
                             return 0;
                         }
@@ -1127,40 +1237,147 @@ const EventAndSignInHandler = {
         }
 
         // 10. Nhiệm Vụ Ninja ("Nhiệm Vụ Ninja" - MissionView.js)
-        if (cmd === SVRCMD.TaskInfo || cmd === SVRCMD.RefreshTask) {
-            var taskKeys = [];
-            if (typeof Config !== "undefined" && Config.task) {
-                for (var tk in Config.task) {
-                    taskKeys.push(Number(tk));
+        if (cmd === SVRCMD.TaskInfo || cmd === SVRCMD.RefreshTask || cmd === SVRCMD.TaskSweep || cmd === SVRCMD.AfterTaskFight) {
+            var getVnDateStr = function() {
+                var d = new Date(Date.now() + 7 * 3600 * 1000);
+                var y = d.getUTCFullYear();
+                var m = String(d.getUTCMonth() + 1).padStart(2, "0");
+                var day = String(d.getUTCDate()).padStart(2, "0");
+                return y + "-" + m + "-" + day;
+            };
+            var getGlobalTaskVar = function(key, fallback) {
+                if (typeof Config !== "undefined" && Config.global_var) {
+                    if (Config.global_var[key] && Config.global_var[key].v_string !== undefined) {
+                        return Number(Config.global_var[key].v_string);
+                    }
+                    for (var gk in Config.global_var) {
+                        var gv = Config.global_var[gk];
+                        if (gv && gv.k === key && gv.v_string !== undefined) {
+                            return Number(gv.v_string);
+                        }
+                    }
                 }
-            }
-            if (taskKeys.length === 0) taskKeys = [1001];
-            if (this.data.active_awake_hero && this.data.cur_task_id) {
-                // Keep active awake task intact for hero awakening!
-            } else if (!this.data.cur_task_id || cmd === SVRCMD.RefreshTask || (Config && Config.task && !Config.task[this.data.cur_task_id])) {
-                this.data.cur_task_id = taskKeys[Math.floor(Math.random() * taskKeys.length)];
-            }
-            if (cmd === SVRCMD.RefreshTask && params && Number(params[0]) === 2) {
-                if (!this.canDeductGold(5000)) return respond({}, { code: 1, msg: "Không đủ Vàng!" }), true;
-                this.deductGold(5000, queuePush);
+                return fallback;
+            };
+            var getAwakeTaskSet = function() {
+                var set = {};
+                if (typeof Config !== "undefined" && Config.hero) {
+                    for (var hid in Config.hero) {
+                        var hCfg = Config.hero[hid];
+                        if (hCfg && hCfg.awake_task_ids) {
+                            var parts = String(hCfg.awake_task_ids).split("/");
+                            for (var pi = 0; pi < parts.length; pi++) {
+                                var tidNum = Number(parts[pi]);
+                                if (tidNum > 0) set[tidNum] = true;
+                            }
+                        }
+                    }
+                }
+                return set;
+            };
+            var isSingleHeroLocked = function(taskCfg) {
+                var lim = taskCfg && taskCfg.limit_heros ? String(taskCfg.limit_heros).trim() : "0";
+                return (lim !== "" && lim !== "0" && lim.indexOf(";") === -1);
+            };
+            var pickNinjaMissionTaskId = function(mode, excludeTaskId) {
+                if (typeof Config === "undefined" || !Config.task) return 11011;
+                var awakeSet = getAwakeTaskSet();
+                var pool = [];
+                var isStone = (mode === "stone");
+                for (var tk in Config.task) {
+                    var t = Config.task[tk];
+                    if (!t) continue;
+                    var tidNum = Number(t.id || tk);
+                    var baseW = Number(t.weight || 0);
+                    var lv = Number(t.lv || 1);
+                    if (baseW <= 0) continue; // Bỏ qua toàn bộ nhiệm vụ thức tỉnh / chuỗi nhiệm vụ có weight = 0
+                    if (isStone && lv !== 4 && lv !== 5) continue; // Làm mới 30 KC chỉ ra A (lv 4) và S (lv 5)
+
+                    var isAwakeOrSingle = Boolean(awakeSet[tidNum]) || isSingleHeroLocked(t);
+                    if (isStone && isAwakeOrSingle) continue; // Làm mới 30 KC không ra nhiệm vụ thức tỉnh khóa 1 tướng
+
+                    var effWeight = baseW;
+                    if (!isStone && isAwakeOrSingle) {
+                        // Làm mới thường: lâu lâu mới có nhiệm vụ khóa 1 tướng
+                        effWeight = 1;
+                    } else if (isStone && lv === 5) {
+                        // Tăng nhẹ tỉ lệ S thường (Truy sát Akatsuki) trong pool A/S
+                        effWeight = Math.max(baseW, 30);
+                    }
+                    pool.push({ id: tidNum, weight: effWeight });
+                }
+                if (pool.length === 0) return 11011;
+                if (excludeTaskId && pool.length > 1) {
+                    var filtered = pool.filter(function(item) { return item.id !== Number(excludeTaskId); });
+                    if (filtered.length > 0) pool = filtered;
+                }
+                var totalWeight = 0;
+                for (var i = 0; i < pool.length; i++) totalWeight += pool[i].weight;
+                var roll = Math.random() * totalWeight;
+                for (var j = 0; j < pool.length; j++) {
+                    roll -= pool[j].weight;
+                    if (roll <= 0) return pool[j].id;
+                }
+                return pool[pool.length - 1].id;
+            };
+
+            var todayStr = getVnDateStr();
+            if (this.data.task_refresh_date !== todayStr) {
+                this.data.task_refresh_date = todayStr;
+                this.data.task_gold_refresh_count = 0;
+                this.data.task_today_count = 0;
             }
 
-            // Tính số lượng nhiệm vụ tối đa mỗi ngày theo cấp Đội và cấp VIP (từ 20 đến 35 nhiệm vụ)
-            var pLv = Number(this.data.team_lv || 1);
-            var pVip = Number(this.data.vip_lv || 0);
-            var maxTaskCount = 20 + Math.floor(pLv / 10) + Math.min(10, pVip);
+            if (cmd === SVRCMD.TaskInfo || cmd === SVRCMD.RefreshTask) {
+                if (cmd === SVRCMD.RefreshTask) {
+                    var refreshType = Number((params && params[0]) || 1); // 1: Vàng, 2: Kim Cương (30 KC)
+                    if (refreshType === 2) {
+                        var stoneCost = getGlobalTaskVar("TASK_STONE_REFRESH_COST", 30);
+                        if (!this.canDeductStone(stoneCost)) {
+                            return respond({}, { code: 1, msg: "Không đủ Kim Cương! (Cần " + stoneCost + " Kim Cương)" }), true;
+                        }
+                        this.deductStone(stoneCost, queuePush);
+                        this.data.active_awake_hero = 0;
+                        this.data.cur_task_id = pickNinjaMissionTaskId("stone", this.data.cur_task_id);
+                    } else {
+                        var maxGoldRefresh = getGlobalTaskVar("TASK_GOLD_REFRESH_PER_DAY_COUNT", 20);
+                        var usedGoldRefresh = Number(this.data.task_gold_refresh_count || 0);
+                        if (usedGoldRefresh >= maxGoldRefresh) {
+                            return respond({}, { code: 1, msg: "Hết lượt làm mới bằng Vàng hôm nay!" }), true;
+                        }
+                        var goldCost = getGlobalTaskVar("TASK_GOLD_REFRESH_COST", 50000);
+                        if (!this.canDeductGold(goldCost)) {
+                            return respond({}, { code: 1, msg: "Không đủ Vàng! (Cần " + goldCost + " Vàng)" }), true;
+                        }
+                        this.deductGold(goldCost, queuePush);
+                        this.data.task_gold_refresh_count = usedGoldRefresh + 1;
+                        this.data.active_awake_hero = 0;
+                        this.data.cur_task_id = pickNinjaMissionTaskId("normal", this.data.cur_task_id);
+                    }
+                } else {
+                    if (this.data.active_awake_hero && this.data.cur_task_id) {
+                        // Keep active awake task intact for hero awakening!
+                    } else if (!this.data.cur_task_id || (typeof Config !== "undefined" && Config.task && !Config.task[this.data.cur_task_id])) {
+                        this.data.cur_task_id = pickNinjaMissionTaskId("normal", 0);
+                    }
+                }
 
-            respond({
-                task_id: this.data.cur_task_id,
-                today_count: Number(this.data.task_today_count || 0),
-                total_count: maxTaskCount,
-                gold_refresh_count: 0
-            });
-            return true;
-        }
+                // Tính số lượng nhiệm vụ tối đa mỗi ngày theo cấp Đội và cấp VIP (từ 20 đến 35 nhiệm vụ)
+                var pLv = Number(this.data.team_lv || 1);
+                var pVip = Number(this.data.vip_lv || 0);
+                var maxTaskCount = 20 + Math.floor(pLv / 10) + Math.min(10, pVip);
 
-        if (cmd === SVRCMD.TaskSweep || cmd === SVRCMD.AfterTaskFight) {
-            var tid = this.data.cur_task_id || 1001;
+                respond({
+                    task_id: this.data.cur_task_id,
+                    today_count: Number(this.data.task_today_count || 0),
+                    total_count: maxTaskCount,
+                    gold_refresh_count: Number(this.data.task_gold_refresh_count || 0)
+                });
+                return true;
+            }
+
+            // SVRCMD.TaskSweep || SVRCMD.AfterTaskFight
+            var tid = this.data.cur_task_id || 11011;
             var tCfg = (typeof Config !== "undefined" && Config.task && Config.task[tid]) ? Config.task[tid] : null;
             var expGain = tCfg ? Number(tCfg.team_exp || 20) : 20;
             var goldGain = tCfg ? Number(tCfg.gold || 5000) : 5000;
@@ -1182,23 +1399,41 @@ const EventAndSignInHandler = {
                 this.changeItemAmount(10020, 2, queuePush);
                 dropItems.push({ type: 1, item_id: 10020, amount: 2 });
             }
-            if (typeof Config !== "undefined" && Config.task) {
-                var tks = Object.keys(Config.task);
-                if (tks.length > 0) {
-                    this.data.cur_task_id = Number(tks[Math.floor(Math.random() * tks.length)]);
-                }
-            }
+            var nextAwakeTaskId = 0;
             if (this.data.active_awake_hero) {
                 var aHeroId = Number(this.data.active_awake_hero);
                 if (!this.data.awake_task_progress) this.data.awake_task_progress = {};
-                this.data.awake_task_progress[aHeroId] = 1;
-                if (typeof Config !== "undefined" && Config.hero && Config.hero[aHeroId]) {
-                    var aCfg = Config.hero[aHeroId];
-                    if (aCfg.awake_equip_id) {
-                        this.changeEquipAmount(Number(aCfg.awake_equip_id), 1, queuePush);
+                var aCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[aHeroId]) ? Config.hero[aHeroId] : null;
+                var aTaskIds = (aCfg && aCfg.awake_task_ids) ? String(aCfg.awake_task_ids).split("/").map(Number).filter(function(x) { return x > 0; }) : [];
+                if (this.data.awake_task_progress[aHeroId] !== 1) {
+                    if (!this.data.awake_task_progress[aHeroId] || typeof this.data.awake_task_progress[aHeroId] !== "object") {
+                        this.data.awake_task_progress[aHeroId] = {};
+                    }
+                    this.data.awake_task_progress[aHeroId][String(tid)] = 1;
+                }
+                var progMap = (this.data.awake_task_progress[aHeroId] && typeof this.data.awake_task_progress[aHeroId] === "object")
+                    ? this.data.awake_task_progress[aHeroId]
+                    : null;
+                for (var ai = 0; ai < aTaskIds.length; ai++) {
+                    if (this.data.awake_task_progress[aHeroId] !== 1 && (!progMap || progMap[String(aTaskIds[ai])] !== 1)) {
+                        nextAwakeTaskId = aTaskIds[ai];
+                        break;
                     }
                 }
+                if (nextAwakeTaskId > 0) {
+                    // Còn nhiệm vụ tiếp theo trong chuỗi thức tỉnh của tướng
+                    this.data.cur_task_id = nextAwakeTaskId;
+                } else {
+                    if (aCfg && aCfg.awake_equip_id) {
+                        this.changeEquipAmount(Number(aCfg.awake_equip_id), 1, queuePush);
+                    }
+                    this.data.active_awake_hero = 0;
+                }
             }
+            if (!nextAwakeTaskId) {
+                this.data.cur_task_id = pickNinjaMissionTaskId("normal", tid);
+            }
+            this.data.task_today_count = Number(this.data.task_today_count || 0) + 1;
             this.data.daily_counts["PLAYER_DIALY_TASK_11"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_11"] || 0) + 1;
             queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
             respond({ is_win: 1, items: dropItems, task_id: this.data.cur_task_id });

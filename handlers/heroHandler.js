@@ -668,11 +668,14 @@ const HeroHandler = {
             }
             var respData = {};
             var isAwakened = (this.data.heros[heroId] && Number(this.data.heros[heroId].has_awake) === 1);
-            var isTaskDone = (this.data.awake_task_progress && this.data.awake_task_progress[heroId] === 1);
+            var progEntry = this.data.awake_task_progress ? this.data.awake_task_progress[heroId] : null;
+            var isLegacyAllDone = (progEntry === 1);
+            var progMap = (progEntry && typeof progEntry === "object") ? progEntry : null;
             for (var ti = 0; ti < taskIds.length; ti++) {
                 var tid = taskIds[ti];
                 if (tid) {
-                    respData[String(tid)] = (isAwakened || isTaskDone) ? 1 : 0;
+                    var stepDone = isAwakened || isLegacyAllDone || Boolean(progMap && progMap[String(tid)] === 1);
+                    respData[String(tid)] = stepDone ? 1 : 0;
                 }
             }
             respond(respData);
@@ -686,7 +689,22 @@ const HeroHandler = {
             if (heroCfg && heroCfg.awake_task_ids) {
                 taskIds = String(heroCfg.awake_task_ids).split("/");
             }
-            var activeTaskId = (taskIds.length > 0) ? Number(taskIds[taskIds.length - 1]) : 16461;
+            var progEntry = this.data.awake_task_progress ? this.data.awake_task_progress[heroId] : null;
+            var isLegacyAllDone = (progEntry === 1);
+            var progMap = (progEntry && typeof progEntry === "object") ? progEntry : null;
+            var activeTaskId = 0;
+            for (var ti = 0; ti < taskIds.length; ti++) {
+                var candId = Number(taskIds[ti]);
+                if (!candId) continue;
+                var done = isLegacyAllDone || Boolean(progMap && progMap[String(candId)] === 1);
+                if (!done) {
+                    activeTaskId = candId;
+                    break;
+                }
+            }
+            if (!activeTaskId) {
+                activeTaskId = (taskIds.length > 0) ? Number(taskIds[taskIds.length - 1]) : 16461;
+            }
             this.data.active_awake_hero = heroId;
             this.data.cur_task_id = activeTaskId;
             this.data.task_id = activeTaskId;
@@ -1163,7 +1181,8 @@ const HeroHandler = {
         }
 
         // Ninja Academy ("Học Viện Ninja" - SchoolView.js, TrainView.js, InlayView.js, CompoundView.js) & Ninja Tools / Gems
-        if (cmd === SVRCMD.PlayerSchoolInfo) {
+        if (cmd === SVRCMD.PlayerSchoolInfo || cmd === SVRCMD.CompleteSchoolWithoutFight || cmd === SVRCMD.SchoolSweep || cmd === SVRCMD.AfterSchoolFight) {
+            var nowSec = Math.floor(Date.now() / 1000);
             if (!this.data.player_school || !this.data.player_school.school_1) {
                 this.data.player_school = {
                     school_1: 1101,
@@ -1177,35 +1196,74 @@ const HeroHandler = {
                     school_5_expire_time: 0
                 };
             }
-            respond({ playerSchool: this.data.player_school });
-            return true;
-        }
-        if (cmd === SVRCMD.CompleteSchoolWithoutFight || cmd === SVRCMD.SchoolSweep || cmd === SVRCMD.AfterSchoolFight) {
+            // Dọn các bí kíp ở slot 2..5 đã hết hạn
+            for (var sIdx = 2; sIdx <= 5; sIdx++) {
+                var expT = Number(this.data.player_school["school_" + sIdx + "_expire_time"] || 0);
+                if (Number(this.data.player_school["school_" + sIdx] || 0) > 0 && expT > 0 && expT <= nowSec) {
+                    this.data.player_school["school_" + sIdx] = 0;
+                    this.data.player_school["school_" + sIdx + "_expire_time"] = 0;
+                }
+            }
+
+            if (cmd === SVRCMD.PlayerSchoolInfo) {
+                respond({ playerSchool: this.data.player_school });
+                return true;
+            }
+
             var slot = Number((params && params[0]) || 1);
-            var nowSec = Math.floor(Date.now() / 1000);
-            if (!this.data.player_school) {
-                this.data.player_school = {
-                    school_1: 1101,
-                    school_2: 0,
-                    school_2_expire_time: 0,
-                    school_3: 0,
-                    school_3_expire_time: 0,
-                    school_4: 0,
-                    school_4_expire_time: 0,
-                    school_5: 0,
-                    school_5_expire_time: 0
-                };
+            var curSchoolId = Number(this.data.player_school["school_" + slot] || 0);
+            if (slot > 1 && curSchoolId <= 0) {
+                return respond({}, { code: 1, msg: "Bí kíp đã hết hạn hoặc chưa mở khóa!" }), true;
             }
-            if (slot >= 1 && slot < 5) {
-                var nextSlot = slot + 1;
-                this.data.player_school["school_" + nextSlot] = 1000 + nextSlot * 100 + 1;
-                this.data.player_school["school_" + nextSlot + "_expire_time"] = nowSec + 3600;
-            }
-            var goldCost = slot * 2500;
-            if (!this.canDeductGold(goldCost)) {
+            if (slot === 1 && curSchoolId <= 0) curSchoolId = 1101;
+
+            var curCfg = (typeof Config !== "undefined" && Config.school && Config.school[curSchoolId]) ? Config.school[curSchoolId] : null;
+            var goldCost = curCfg ? Number(curCfg.training_cost || 0) : (slot * 2500);
+            if (goldCost > 0 && !this.canDeductGold(goldCost)) {
                 return respond({}, { code: 1, msg: "Không đủ Vàng!" }), true;
             }
-            this.deductGold(goldCost, queuePush);
+            if (goldCost > 0) this.deductGold(goldCost, queuePush);
+
+            // Tiêu thụ bí kíp tạm ở slot 2..5 sau khi hoàn thành
+            if (slot >= 2 && slot <= 5) {
+                this.data.player_school["school_" + slot] = 0;
+                this.data.player_school["school_" + slot + "_expire_time"] = 0;
+            }
+
+            // Mở khóa bí kíp step tiếp theo theo adv_id / adv_weight và đúng thời gian tồn tại:
+            // Step đầu (slot 2): 10p (600s), Step 2 (slot 3): 5p (300s), Step 3 (slot 4): 2p (120s),
+            // Step cuối (slot 5): cuốn Âm Dương (1518, 1520) = 30s, cuốn loại khác = 1p (60s)
+            if (slot >= 1 && slot < 5) {
+                var nextSlot = slot + 1;
+                var nextId = 1000 + nextSlot * 100 + 1;
+                if (curCfg && curCfg.adv_id && String(curCfg.adv_id) !== "0") {
+                    var advIds = String(curCfg.adv_id).split(";").map(Number).filter(function(x) { return x > 0; });
+                    var advWeights = curCfg.adv_weight ? String(curCfg.adv_weight).split(";").map(Number) : [];
+                    if (advIds.length > 0) {
+                        var totalW = 0;
+                        for (var wi = 0; wi < advIds.length; wi++) {
+                            totalW += (advWeights[wi] > 0 ? advWeights[wi] : 1);
+                        }
+                        var rollW = Math.random() * totalW;
+                        nextId = advIds[advIds.length - 1];
+                        for (var wj = 0; wj < advIds.length; wj++) {
+                            rollW -= (advWeights[wj] > 0 ? advWeights[wj] : 1);
+                            if (rollW <= 0) {
+                                nextId = advIds[wj];
+                                break;
+                            }
+                        }
+                    }
+                }
+                var durationBySlot = { 2: 600, 3: 300, 4: 120 };
+                var expireSec = durationBySlot[nextSlot] || 60;
+                if (nextSlot === 5) {
+                    var isYinYang = (nextId === 1518 || nextId === 1520);
+                    expireSec = isYinYang ? 30 : 60;
+                }
+                this.data.player_school["school_" + nextSlot] = nextId;
+                this.data.player_school["school_" + nextSlot + "_expire_time"] = nowSec + expireSec;
+            }
 
             var dropItemId = 50010;
             var dropType = 1;

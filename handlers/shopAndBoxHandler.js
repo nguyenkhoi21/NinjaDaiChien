@@ -524,6 +524,8 @@ const ShopAndBoxHandler = {
             // Update recharge statistics for Online Events & First Recharge Gift
             this.data.total_recharge_usd = Number(this.data.total_recharge_usd || 0) + priceUsd;
             this.data.daily_recharge_usd = Number(this.data.daily_recharge_usd || 0) + priceUsd;
+            this.data.recharge_3d_usd = Number(this.data.recharge_3d_usd || 0) + priceUsd;
+            this.data.recharge_weekly_usd = Number(this.data.recharge_weekly_usd || 0) + priceUsd;
             this.data.recharge_times = Number(this.data.recharge_times || 0) + 1;
             this.data.last_recharge_time = nowSec;
             if (!this.data.single_recharge_counts) this.data.single_recharge_counts = {};

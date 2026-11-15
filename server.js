@@ -329,6 +329,9 @@ class PlayerSession {
         } else if (!this.server.data) {
             this.initPlayer(this.playerId, this.username);
         }
+        if (typeof this.server.ensureDailyAndEventReset === "function") {
+            this.server.ensureDailyAndEventReset();
+        }
 
         // ---- Multiplayer-aware commands (need access to other players) ----
         const d = this.server.data;
