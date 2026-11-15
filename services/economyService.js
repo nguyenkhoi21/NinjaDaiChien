@@ -196,6 +196,9 @@ const EconomyService = {
         equipId = Number(equipId);
         delta = Number(delta || 0);
         if (!this.data.equip) this.data.equip = {};
+        if (typeof Config !== "undefined" && Config.equip && !Config.equip[equipId]) {
+            return 0;
+        }
         const cur = this.getEquipAmount(equipId);
         const next = Math.max(0, cur + delta);
         if (next > 0) {

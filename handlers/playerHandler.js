@@ -40,6 +40,38 @@ function handlePlayer(cmd, params, respond, queuePush) {
         return true;
     }
     if (cmd === SVRCMD.BagInfo) {
+        if (typeof Config !== "undefined") {
+            if (this.data.equip && Config.equip) {
+                for (const ek of Object.keys(this.data.equip)) {
+                    const ev = this.data.equip[ek];
+                    const eId = Number((ev && ev.equip_id) || ek);
+                    const eAmt = Number((ev && ev.amount) || 0);
+                    if (!eId || eAmt <= 0 || !Config.equip[eId]) {
+                        delete this.data.equip[ek];
+                    }
+                }
+            }
+            if (this.data.items && Config.item) {
+                for (const ik of Object.keys(this.data.items)) {
+                    const iv = this.data.items[ik];
+                    const iId = Number((iv && iv.item_id) || ik);
+                    const iAmt = Number((iv && iv.amount) || 0);
+                    if (!iId || iAmt <= 0 || !Config.item[iId]) {
+                        delete this.data.items[ik];
+                    }
+                }
+            }
+            if (this.data.ninja_tools && Config.ninja_tool) {
+                for (const tk of Object.keys(this.data.ninja_tools)) {
+                    const tv = this.data.ninja_tools[tk];
+                    const tId = Number((tv && tv.ninja_tool_id) || tk);
+                    const tAmt = Number((tv && tv.amount) || 0);
+                    if (!tId || tAmt <= 0 || !Config.ninja_tool[tId]) {
+                        delete this.data.ninja_tools[tk];
+                    }
+                }
+            }
+        }
         this.syncGemsAndSecrets(queuePush);
         respond({
             items: this.data.items || {},
