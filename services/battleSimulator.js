@@ -3,7 +3,6 @@
 // ============================================================================
 const fs = require("fs");
 const path = require("path");
-const vm = require("vm");
 const http = require("http");
 const zlib = require("zlib");
 
@@ -18,15 +17,19 @@ function createCcClass() {
         const prototype = Object.create(_super);
         for (const name in prop) {
             if (typeof prop[name] === "function" && typeof _super[name] === "function") {
-                prototype[name] = (function (name, fn) {
-                    return function () {
-                        const tmp = this._super;
-                        this._super = _super[name];
-                        const ret = fn.apply(this, arguments);
-                        this._super = tmp;
-                        return ret;
-                    };
-                })(name, prop[name]);
+                if (prop[name].toString().indexOf("_super") !== -1) {
+                    prototype[name] = (function (name, fn) {
+                        return function () {
+                            const tmp = this._super;
+                            this._super = _super[name];
+                            const ret = fn.apply(this, arguments);
+                            this._super = tmp;
+                            return ret;
+                        };
+                    })(name, prop[name]);
+                } else {
+                    prototype[name] = prop[name];
+                }
             } else {
                 prototype[name] = prop[name];
             }
@@ -97,28 +100,50 @@ function initSimContext() {
             },
             removeListenerByDelgate: function (delegate) {
                 for (const evt in this._listeners) {
-                    this._listeners[evt] = this._listeners[evt].filter((item) => item.delegate !== delegate);
+                    const list = this._listeners[evt];
+                    if (!list || list.length === 0) continue;
+                    let write = 0;
+                    for (let i = 0; i < list.length; i++) {
+                        if (list[i].delegate !== delegate) {
+                            list[write++] = list[i];
+                        }
+                    }
+                    list.length = write;
                 }
             },
-            dispatchEventByDelegate: function (delegate, evt) {
+            dispatchEventByDelegate: function (delegate, evt, a1, a2, a3, a4, a5) {
                 const list = this._listeners[evt];
                 if (!list || list.length === 0) return;
-                const args = Array.prototype.slice.call(arguments, 2);
+                const len = list.length;
+                if (len === 1) {
+                    const item = list[0];
+                    if (item.delegate === delegate && typeof item.fn === "function") {
+                        item.fn.call(delegate, a1, a2, a3, a4, a5);
+                    }
+                    return;
+                }
                 const copy = list.slice(0);
                 for (let i = 0; i < copy.length; i++) {
                     if (copy[i].delegate === delegate && typeof copy[i].fn === "function") {
-                        copy[i].fn.apply(delegate, args);
+                        copy[i].fn.call(delegate, a1, a2, a3, a4, a5);
                     }
                 }
             },
-            dispatchEvent: function (evt) {
+            dispatchEvent: function (evt, a1, a2, a3, a4, a5) {
                 const list = this._listeners[evt];
                 if (!list || list.length === 0) return;
-                const args = Array.prototype.slice.call(arguments, 1);
+                const len = list.length;
+                if (len === 1) {
+                    const item = list[0];
+                    if (typeof item.fn === "function") {
+                        item.fn.call(item.delegate || null, a1, a2, a3, a4, a5);
+                    }
+                    return;
+                }
                 const copy = list.slice(0);
                 for (let i = 0; i < copy.length; i++) {
                     if (typeof copy[i].fn === "function") {
-                        copy[i].fn.apply(copy[i].delegate || null, args);
+                        copy[i].fn.call(copy[i].delegate || null, a1, a2, a3, a4, a5);
                     }
                 }
             }
@@ -206,43 +231,39 @@ function initSimContext() {
     };
     sandbox.window = sandbox;
     sandbox.global = sandbox;
-
-    const ctx = vm.createContext(sandbox);
-    vm.runInContext(`
-        if (!Object.prototype.getValByKey) {
-            Object.defineProperty(Object.prototype, "getValByKey", {
-                value: function (k) { return this[k]; },
-                enumerable: false,
-                configurable: true,
-                writable: true
-            });
-        }
-        if (!Array.prototype.removeAt) {
-            Object.defineProperty(Array.prototype, "removeAt", {
-                value: function (index) {
-                    if (index >= 0 && index < this.length) {
-                        this.splice(index, 1);
-                    }
-                },
-                enumerable: false,
-                configurable: true,
-                writable: true
-            });
-        }
-        if (!Array.prototype.remove) {
-            Object.defineProperty(Array.prototype, "remove", {
-                value: function (obj) {
-                    var idx = this.indexOf(obj);
-                    if (idx >= 0) {
-                        this.splice(idx, 1);
-                    }
-                },
-                enumerable: false,
-                configurable: true,
-                writable: true
-            });
-        }
-    `, ctx);
+    if (!Object.prototype.getValByKey) {
+        Object.defineProperty(Object.prototype, "getValByKey", {
+            value: function (k) { return this[k]; },
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
+    }
+    if (!Array.prototype.removeAt) {
+        Object.defineProperty(Array.prototype, "removeAt", {
+            value: function (index) {
+                if (index >= 0 && index < this.length) {
+                    this.splice(index, 1);
+                }
+            },
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
+    }
+    if (!Array.prototype.remove) {
+        Object.defineProperty(Array.prototype, "remove", {
+            value: function (obj) {
+                var idx = this.indexOf(obj);
+                if (idx >= 0) {
+                    this.splice(idx, 1);
+                }
+            },
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
+    }
 
     const baseModelFiles = [
         path.join(__dirname, "..", "battle_engine", "skill_constants.js"),
@@ -254,9 +275,10 @@ function initSimContext() {
         path.join(__dirname, "..", "battle_engine", "netWork", "PackageReader.js"),
         path.join(__dirname, "..", "battle_engine", "netWork", "PackageWriter.js")
     ];
+    let combinedCode = "";
     for (const f of baseModelFiles) {
         if (fs.existsSync(f)) {
-            vm.runInContext(fs.readFileSync(f, "utf8"), ctx, { filename: path.basename(f) });
+            combinedCode += "\n;" + fs.readFileSync(f, "utf8");
         }
     }
 
@@ -279,10 +301,81 @@ function initSimContext() {
     for (const file of filesToLoad) {
         const fullPath = path.join(CLIENT_BATTLE_DIR, file);
         if (fs.existsSync(fullPath)) {
-            const code = fs.readFileSync(fullPath, "utf8");
-            vm.runInContext(code, ctx, { filename: file });
+            combinedCode += "\n;" + fs.readFileSync(fullPath, "utf8");
         }
     }
+
+    const paramKeys = Object.keys(sandbox);
+    const paramVals = paramKeys.map((k) => sandbox[k]);
+
+    const footerCode = `
+        // Disable client anti-cheat overhead on trusted server
+        if (typeof BattleSkillEffect !== "undefined") {
+            BattleSkillEffect.prototype.physicDmg = 0;
+            BattleSkillEffect.prototype.magicDmg = 0;
+            BattleSkillEffect.prototype.heal = 0;
+            BattleSkillEffect.prototype.dmgpertime = 0;
+            BattleSkillEffect.prototype.dmgpertimelast = 0;
+            BattleSkillEffect.prototype.dmgpertimetype = 0;
+            BattleSkillEffect.prototype.buffStatus = 0;
+            BattleSkillEffect.prototype.buffEffVal = 0;
+            BattleSkillEffect.prototype.buffEffVal2 = 0;
+            BattleSkillEffect.prototype.pushDistance = 0;
+            BattleSkillEffect.prototype.powerGain = 0;
+            BattleSkillEffect.prototype.feedbackDmg = 0;
+            BattleSkillEffect.prototype.immunityType = 0;
+            BattleSkillEffect.prototype.isCritHit = 0;
+            BattleSkillEffect.bindExtra = function (bse) { return bse; };
+            BattleSkillEffect.prototype.updateCheckPw = function () {};
+            BattleSkillEffect.prototype.checkCheat = function () {};
+            BattleSkillEffect.prototype.clone = function () {
+                var rtn = new BattleSkillEffect();
+                rtn.isactive = this.isactive;
+                rtn.startCountPoint = this.startCountPoint;
+                rtn.removePoint = this.removePoint;
+                rtn.doEffStarted = this.doEffStarted;
+                rtn.physicDmg = this.physicDmg;
+                rtn.magicDmg = this.magicDmg;
+                rtn.heal = this.heal;
+                rtn.dmgpertime = this.dmgpertime;
+                rtn.dmgpertimelast = this.dmgpertimelast;
+                rtn.dmgpertimetype = this.dmgpertimetype;
+                rtn.buffStatus = this.buffStatus;
+                rtn.pushDistance = this.pushDistance;
+                rtn.powerGain = this.powerGain;
+                rtn.feedbackDmg = this.feedbackDmg;
+                rtn.buffEffVal = this.buffEffVal;
+                rtn.buffEffVal2 = this.buffEffVal2;
+                rtn.immunityType = this.immunityType;
+                rtn.isCritHit = this.isCritHit;
+                rtn.revive = this.revive;
+                rtn.feedbackTarget = this.feedbackTarget;
+                return rtn;
+            };
+        }
+
+        return {
+            cc: cc,
+            get Config() { return Config; },
+            get ConfigGlobalVar() { return ConfigGlobalVar; },
+            _updateConfig: function (newCfg, newGlobalVar) {
+                if (newCfg) Config = newCfg;
+                if (newGlobalVar) ConfigGlobalVar = newGlobalVar;
+            },
+            BattleManager: typeof BattleManager !== "undefined" ? BattleManager : null,
+            BattleModle: typeof BattleModle !== "undefined" ? BattleModle : null,
+            UnitGenerater: typeof UnitGenerater !== "undefined" ? UnitGenerater : null,
+            BattleAI: typeof BattleAI !== "undefined" ? BattleAI : null,
+            BattleActionGenerater: typeof BattleActionGenerater !== "undefined" ? BattleActionGenerater : null,
+            juggler: typeof juggler !== "undefined" ? juggler : null,
+            skillJuggler: typeof skillJuggler !== "undefined" ? skillJuggler : null,
+            departJuggler: typeof departJuggler !== "undefined" ? departJuggler : null,
+            window: window
+        };
+    `;
+
+    const factory = new Function(...paramKeys, combinedCode + "\n" + footerCode);
+    const ctx = factory(...paramVals);
 
     _simContext = ctx;
     return ctx;
@@ -470,8 +563,9 @@ function runBattleWithModle(ctx, bm, actualSeed, fallbackBmStr) {
 
 function simulateBattleFromHeroes(atkHeros, defHeros, seed) {
     const ctx = initSimContext();
-    ctx.Config = global.Config || ctx.Config;
-    ctx.ConfigGlobalVar = (ctx.Config && ctx.Config.global) || ctx.ConfigGlobalVar || {};
+    if (global.Config && ctx.Config !== global.Config && typeof ctx._updateConfig === "function") {
+        ctx._updateConfig(global.Config, global.Config.global || {});
+    }
 
     if (!ctx.UnitGenerater || typeof ctx.UnitGenerater.gen !== "function") {
         throw new Error("UnitGenerater is not initialized in battleSimulator context");
@@ -507,8 +601,9 @@ function simulateBattleFromHeroes(atkHeros, defHeros, seed) {
 
 function simulateBattleFromBm(bmStr, seed) {
     const ctx = initSimContext();
-    ctx.Config = global.Config || ctx.Config;
-    ctx.ConfigGlobalVar = (ctx.Config && ctx.Config.global) || ctx.ConfigGlobalVar || {};
+    if (global.Config && ctx.Config !== global.Config && typeof ctx._updateConfig === "function") {
+        ctx._updateConfig(global.Config, global.Config.global || {});
+    }
     const BattleModleRef = ctx.BattleModle || (ctx.window && ctx.window.BattleModle);
     if (!BattleModleRef || typeof BattleModleRef.getModleFromString !== "function") {
         throw new Error("BattleModle is not initialized in battleSimulator context");

@@ -93,19 +93,41 @@ const GuildHandler = {
             return true;
         }
 
+        var MAX_HIRE_SEC = 4 * 3600;
+        var normalizeHireEntry = function (entry, defaultTs) {
+            if (entry && typeof entry === "object") {
+                return { hero_id: Number(entry.hero_id || 0), hire_time: Number(entry.hire_time || defaultTs) };
+            }
+            return { hero_id: Number(entry || 0), hire_time: defaultTs };
+        };
+        var computeHireGold = function (heroPayload, hireTime, nowSec) {
+            var quality = Math.max(1, Number((heroPayload && heroPayload.quality) || 1));
+            var lv = Math.max(1, Number((heroPayload && heroPayload.lv) || 1));
+            var hourlyRate = 10000 + quality * 5000 + lv * 50;
+            var maxGold = hourlyRate * 4;
+            var elapsed = Math.max(0, Math.min(MAX_HIRE_SEC, nowSec - Number(hireTime || nowSec)));
+            var campGold = Math.floor(maxGold * (elapsed / MAX_HIRE_SEC));
+            return { campGold: campGold, maxGold: maxGold };
+        };
+
         if (cmd === "GetPlayerHires" || cmd === "GetPlayerHireEx") {
             if (!this.data.my_hires) this.data.my_hires = [];
             var myHiresList = [];
             for (var mhi = 0; mhi < this.data.my_hires.length; mhi++) {
-                var mhHeroId = Number(this.data.my_hires[mhi]);
+                var hireEntry = normalizeHireEntry(this.data.my_hires[mhi], nowTs);
+                this.data.my_hires[mhi] = hireEntry;
+                var mhHeroId = hireEntry.hero_id;
+                if (mhHeroId <= 0) continue;
+                var mhPayload = this.computeHeroPayload(mhHeroId);
+                var hireCalc = computeHireGold(mhPayload, hireEntry.hire_time, nowTs);
                 myHiresList.push({
                     id: mhi + 1,
                     hero_id: mhHeroId,
-                    hero: JSON.stringify(this.computeHeroPayload(mhHeroId)),
-                    hire_time: nowTs - 3600,
-                    camp_gold: 50000,
-                    hire_gold: 12400,
-                    max_gold: 115000
+                    hero: JSON.stringify(mhPayload),
+                    hire_time: hireEntry.hire_time,
+                    camp_gold: hireCalc.campGold,
+                    hire_gold: 0,
+                    max_gold: hireCalc.maxGold
                 });
             }
             respond({ hires: myHiresList });
@@ -115,8 +137,17 @@ const GuildHandler = {
         if (cmd === SVRCMD.SetHire) {
             var hId = Number((params && params[0]) || 0);
             if (!this.data.my_hires) this.data.my_hires = [];
-            if (hId > 0 && this.data.my_hires.indexOf(hId) === -1) {
-                this.data.my_hires.push(hId);
+            var alreadyHired = false;
+            for (var shi = 0; shi < this.data.my_hires.length; shi++) {
+                var normEntry = normalizeHireEntry(this.data.my_hires[shi], nowTs);
+                this.data.my_hires[shi] = normEntry;
+                if (normEntry.hero_id === hId) {
+                    alreadyHired = true;
+                    break;
+                }
+            }
+            if (hId > 0 && !alreadyHired) {
+                this.data.my_hires.push({ hero_id: hId, hire_time: nowTs });
             }
             if (!this.data.daily_counts) this.data.daily_counts = {};
             this.data.daily_counts["PLAYER_DIALY_TASK_15"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_15"] || 0) + 1;
@@ -128,12 +159,21 @@ const GuildHandler = {
         if (cmd === "RemoveHire" || cmd === SVRCMD.RemoveHire) {
             var hId = Number((params && params[0]) || 0);
             if (!this.data.my_hires) this.data.my_hires = [];
-            var idx = this.data.my_hires.indexOf(hId);
-            if (idx !== -1) {
-                this.data.my_hires.splice(idx, 1);
+            var goldGained = 0;
+            var foundIdx = -1;
+            for (var rhi = 0; rhi < this.data.my_hires.length; rhi++) {
+                var rEntry = normalizeHireEntry(this.data.my_hires[rhi], nowTs);
+                if (rEntry.hero_id === hId) {
+                    foundIdx = rhi;
+                    var rhPayload = this.computeHeroPayload(hId);
+                    goldGained = computeHireGold(rhPayload, rEntry.hire_time, nowTs).campGold;
+                    break;
+                }
             }
-            var goldGained = 62400;
-            this.addGold(goldGained, queuePush);
+            if (foundIdx !== -1) {
+                this.data.my_hires.splice(foundIdx, 1);
+            }
+            if (goldGained > 0) this.addGold(goldGained, queuePush);
             this.save();
             respond({ hire_gold: 0, camp_gold: goldGained, total_gold: goldGained });
             return true;
@@ -440,29 +480,38 @@ const GuildHandler = {
             return true;
         }
 
-        if (cmd === "GuildGrowthInfo") {
-            var gLv = Number(this.data.group_level || 1);
-            var reqExp = gLv * 1000;
-            respond({
-                guildId: Number(this.data.group_id || 1),
+        var buildGuildGrowthPayload = function (data) {
+            var gLv = Number(data.group_level || 1);
+            var reqExp = gLv >= 20 ? 0 : gLv * 1000;
+            var skillsMap = data.guild_skills || {};
+            var hpLv = Number(skillsMap.hp || 0);
+            var atkLv = Number(skillsMap.atk || 0);
+            var defLv = Number(skillsMap.def || 0);
+            var fundVal = (data.group_fund !== undefined) ? Number(data.group_fund) : 500;
+            return {
+                guildId: Number(data.group_id || 1),
                 level: gLv,
-                exp: Number(this.data.group_exp || 0),
+                exp: Number(data.group_exp || 0),
                 expRequired: reqExp,
                 maxLevel: 20,
-                fund: Number(this.data.group_fund || 500),
-                contribution: Number(this.data.group_contribution || 0),
+                fund: fundVal,
+                contribution: Number(data.group_contribution || 0),
                 canUpgrade: true,
                 donations: {
-                    gold: { currency: "gold", cost: 500000, limit: 5, exp: 100, fund: 100, contribution: 100, used: Number(this.data.guild_donate_gold || 0), left: Math.max(0, 5 - Number(this.data.guild_donate_gold || 0)) },
-                    diamond: { currency: "diamond", cost: 100, limit: 3, exp: 100, fund: 100, contribution: 100, used: Number(this.data.guild_donate_gem || 0), left: Math.max(0, 3 - Number(this.data.guild_donate_gem || 0)) }
+                    gold: { currency: "gold", cost: 500000, limit: 5, exp: 100, fund: 100, contribution: 100, used: Number(data.guild_donate_gold || 0), left: Math.max(0, 5 - Number(data.guild_donate_gold || 0)) },
+                    diamond: { currency: "diamond", cost: 100, limit: 3, exp: 100, fund: 100, contribution: 100, used: Number(data.guild_donate_gem || 0), left: Math.max(0, 3 - Number(data.guild_donate_gem || 0)) }
                 },
                 skills: [
-                    { key: "hp", name: "Sinh lực", level: Number((this.data.guild_skills && this.data.guild_skills.hp) || 0), percent: 0, cap: gLv, cost: 500 },
-                    { key: "atk", name: "Công kích", level: Number((this.data.guild_skills && this.data.guild_skills.atk) || 0), percent: 0, cap: gLv, cost: 500 },
-                    { key: "def", name: "Phòng thủ", level: Number((this.data.guild_skills && this.data.guild_skills.def) || 0), percent: 0, cap: gLv, cost: 500 }
+                    { key: "hp", name: "Sinh lực", level: hpLv, percent: hpLv, cap: gLv, cost: 500 },
+                    { key: "atk", name: "Công kích", level: atkLv, percent: atkLv, cap: gLv, cost: 500 },
+                    { key: "def", name: "Phòng thủ", level: defLv, percent: defLv, cap: gLv, cost: 500 }
                 ],
                 logs: []
-            });
+            };
+        };
+
+        if (cmd === "GuildGrowthInfo") {
+            respond(buildGuildGrowthPayload(this.data));
             return true;
         }
 
@@ -478,7 +527,7 @@ const GuildHandler = {
                 this.data.guild_donate_gold = Number(this.data.guild_donate_gold || 0) + 1;
             }
             this.data.group_exp = Number(this.data.group_exp || 0) + 100;
-            this.data.group_fund = Number(this.data.group_fund || 0) + 100;
+            this.data.group_fund = Number((this.data.group_fund !== undefined) ? this.data.group_fund : 500) + 100;
             this.data.group_contribution = Number(this.data.group_contribution || 0) + 100;
             this.addCurrency(12, 100, queuePush);
             var gLv = Number(this.data.group_level || 1);
@@ -487,36 +536,30 @@ const GuildHandler = {
                 this.data.group_exp = 0;
             }
             this.save();
-            respond({
-                guildId: Number(this.data.group_id || 1),
-                level: Number(this.data.group_level || 1),
-                exp: Number(this.data.group_exp || 0),
-                expRequired: Number(this.data.group_level || 1) * 1000,
-                maxLevel: 20,
-                fund: Number(this.data.group_fund || 500),
-                contribution: Number(this.data.group_contribution || 0),
-                canUpgrade: true,
-                donations: {
-                    gold: { currency: "gold", cost: 500000, limit: 5, exp: 100, fund: 100, contribution: 100, used: Number(this.data.guild_donate_gold || 0), left: Math.max(0, 5 - Number(this.data.guild_donate_gold || 0)) },
-                    diamond: { currency: "diamond", cost: 100, limit: 3, exp: 100, fund: 100, contribution: 100, used: Number(this.data.guild_donate_gem || 0), left: Math.max(0, 3 - Number(this.data.guild_donate_gem || 0)) }
-                },
-                skills: [
-                    { key: "hp", name: "Sinh lực", level: Number((this.data.guild_skills && this.data.guild_skills.hp) || 0), percent: 0, cap: Number(this.data.group_level || 1), cost: 500 },
-                    { key: "atk", name: "Công kích", level: Number((this.data.guild_skills && this.data.guild_skills.atk) || 0), percent: 0, cap: Number(this.data.group_level || 1), cost: 500 },
-                    { key: "def", name: "Phòng thủ", level: Number((this.data.guild_skills && this.data.guild_skills.def) || 0), percent: 0, cap: Number(this.data.group_level || 1), cost: 500 }
-                ],
-                logs: []
-            });
+            respond(buildGuildGrowthPayload(this.data));
             return true;
         }
 
         if (cmd === "GuildSkillUpgrade") {
             var sKey = (params && params[0]) ? String(params[0]) : "hp";
+            if (sKey !== "hp" && sKey !== "atk" && sKey !== "def") {
+                return respond({}, { code: 1, msg: "Kỹ năng bang không hợp lệ!" }), true;
+            }
             if (!this.data.guild_skills) this.data.guild_skills = { hp: 0, atk: 0, def: 0 };
-            this.data.guild_skills[sKey] = Number(this.data.guild_skills[sKey] || 0) + 1;
-            this.data.group_contribution = Math.max(0, Number(this.data.group_contribution || 0) - 500);
+            var gLvCur = Number(this.data.group_level || 1);
+            var curSkillLv = Number(this.data.guild_skills[sKey] || 0);
+            if (curSkillLv >= gLvCur) {
+                return respond({}, { code: 1, msg: "Kỹ năng đã đạt giới hạn cấp bang!" }), true;
+            }
+            var curFund = (this.data.group_fund !== undefined) ? Number(this.data.group_fund) : 500;
+            var skillCost = 500;
+            if (curFund < skillCost) {
+                return respond({}, { code: 1, msg: "Không đủ quỹ bang!" }), true;
+            }
+            this.data.group_fund = curFund - skillCost;
+            this.data.guild_skills[sKey] = curSkillLv + 1;
             this.save();
-            respond({});
+            respond(buildGuildGrowthPayload(this.data));
             return true;
         }
 

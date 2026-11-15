@@ -292,6 +292,22 @@ const HeroHandler = {
             }
         }
 
+        // Guild Skills (Quỹ kỹ năng bang: mỗi cấp +1% HP / Công vật lý+thuật / Thủ vật lý+thuật)
+        if (Number(this.data.group_id || 0) > 0 && this.data.guild_skills) {
+            var gHpLv = Math.max(0, Number(this.data.guild_skills.hp || 0));
+            var gAtkLv = Math.max(0, Number(this.data.guild_skills.atk || 0));
+            var gDefLv = Math.max(0, Number(this.data.guild_skills.def || 0));
+            if (gHpLv > 0) hp *= (1 + gHpLv * 0.01);
+            if (gAtkLv > 0) {
+                atk *= (1 + gAtkLv * 0.01);
+                mp *= (1 + gAtkLv * 0.01);
+            }
+            if (gDefLv > 0) {
+                def *= (1 + gDefLv * 0.01);
+                mp_def *= (1 + gDefLv * 0.01);
+            }
+        }
+
         var finalHp = Math.floor(hp);
         var finalAtk = Math.floor(atk);
         var finalDef = Math.floor(def);
