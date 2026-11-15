@@ -598,7 +598,7 @@ var Hero = cc.Class.extend({
 
     initServerTFSkill: function(heroData) {
         var tfSel = Hero.decodeTfSel(heroData.sel_tf_skill);
-        this._tfDual = tfSel.dual && Hero.canUseDualTalent(this);
+        this._tfDual = tfSel.dual && Hero.canUseDualTalent(this, heroData);
         if (this._tfDual) {
             // Quality +4 with "both" chosen: both talents are active together.
             var dualSel = tfSel.skill;
@@ -1143,13 +1143,24 @@ Hero.tfDualNeedQuality = function() {
     var n = parseInt(raw, 10);
     return isNaN(n) ? Hero.TF_DUAL_DEFAULT_QUALITY : n;
 };
-// The hero is allowed to activate both talents (quality high enough and two valid talents).
-Hero.canUseDualTalent = function(hero) {
+// The hero is allowed to activate both talents (quality high enough or talent level > 4, with two valid talents).
+Hero.canUseDualTalent = function(hero, heroData) {
     var need = Hero.tfDualNeedQuality();
-    if (!need || !hero || !hero.config || !hero.quality) return false;
+    if (!hero || !hero.config || !hero.quality) return false;
     if (!hero.config.skill_id_11 || !hero.config.skill_id_12) return false;
     if (!Config.skill[hero.config.skill_id_11] || !Config.skill[hero.config.skill_id_12]) return false;
-    return Number(hero.quality.quality) >= need;
+    if (need && Number(hero.quality.quality) >= need) return true;
+    var tfSkills = hero._tfSkill || [];
+    for (var i = 0; i < tfSkills.length; i++) {
+        if (tfSkills[i] && typeof tfSkills[i].getLevel === "function" && Number(tfSkills[i].getLevel()) > 4) {
+            return true;
+        }
+    }
+    if (heroData) {
+        if (Number(heroData.skill_11 || heroData.skill_11_lv || 0) > 4) return true;
+        if (Number(heroData.skill_12 || heroData.skill_12_lv || 0) > 4) return true;
+    }
+    return false;
 };
 
 // 忍者等级

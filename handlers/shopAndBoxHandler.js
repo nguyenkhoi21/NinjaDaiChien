@@ -23,6 +23,7 @@ const ShopAndBoxHandler = {
                     if (matched.length >= 12) break;
                 }
             }
+            var addedKeys = [];
             for (var mi = 0; mi < matched.length; mi++) {
                 var sc = matched[mi];
                 var grp = Config.box_drop[sc.box_id];
@@ -32,8 +33,14 @@ const ShopAndBoxHandler = {
                         var pickKey = bKeys[Math.floor(Math.random() * bKeys.length)];
                         var keyStr = sc.id + "_" + pickKey;
                         infoObj[keyStr] = 1;
+                        addedKeys.push(keyStr);
                     }
                 }
+            }
+            // Thỉnh thoảng giảm 20% giá (discount = 0.8) cho 1 sản phẩm ngẫu nhiên trong shop
+            if (addedKeys.length > 0 && Math.random() < 0.7) {
+                var discKey = addedKeys[Math.floor(Math.random() * addedKeys.length)];
+                discObj[discKey] = 0.8;
             }
         }
         return { info: infoObj, discount_info: discObj };

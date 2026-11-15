@@ -306,18 +306,18 @@ const HeroHandler = {
             secret_105_lv: secMap[105] ? Number(secMap[105].lv || 1) : 0,
             secret_106_id: secMap[106] ? Number(secMap[106].equip_id) : 0,
             secret_106_lv: secMap[106] ? Number(secMap[106].lv || 1) : 0,
-            skill_1_lv: Number(h.skill_1_lv || 1),
-            skill_2_lv: Number(h.skill_2_lv || 0),
-            skill_3_lv: Number(h.skill_3_lv || 0),
-            skill_4_lv: Number(h.skill_4_lv || 0),
-            skill_5_lv: Number(h.skill_5_lv || 0),
-            skill_6_lv: Number(h.skill_6_lv || 0),
-            skill_7_lv: Number(h.skill_7_lv || 0),
-            skill_8_lv: Number(h.skill_8_lv || 0),
-            skill_9_lv: Number(h.skill_9_lv || 0),
-            skill_10_lv: Number(h.skill_10_lv || 0),
-            skill_11_lv: Number(h.skill_11_lv || 1),
-            skill_12_lv: Number(h.skill_12_lv || 1),
+            skill_1_lv: Math.min(80, Math.max(1, Number(h.skill_1_lv || 1))),
+            skill_2_lv: Math.min(80, Math.max(0, Number(h.skill_2_lv || 0))),
+            skill_3_lv: Math.min(60, Math.max(0, Number(h.skill_3_lv || 0))),
+            skill_4_lv: Math.min(40, Math.max(0, Number(h.skill_4_lv || 0))),
+            skill_5_lv: Math.min(40, Math.max(0, Number(h.skill_5_lv || 0))),
+            skill_6_lv: Math.min(80, Math.max(0, Number(h.skill_6_lv || 0))),
+            skill_7_lv: Math.min(80, Math.max(0, Number(h.skill_7_lv || 0))),
+            skill_8_lv: Math.min(60, Math.max(0, Number(h.skill_8_lv || 0))),
+            skill_9_lv: Math.min(40, Math.max(0, Number(h.skill_9_lv || 0))),
+            skill_10_lv: Math.min(40, Math.max(0, Number(h.skill_10_lv || 0))),
+            skill_11_lv: Math.min(6, Math.max(1, Number(h.skill_11_lv || 1))),
+            skill_12_lv: Math.min(6, Math.max(1, Number(h.skill_12_lv || 1))),
             sel_tf_skill: Number(h.sel_tf_skill || 0)
         };
     },
@@ -451,12 +451,13 @@ const HeroHandler = {
                 var curLv = Number(h["skill_" + skillIndex + "_lv"] !== undefined ? h["skill_" + skillIndex + "_lv"] : 1);
 
                 var heroTeamLv = Number(h.lv || h.level || this.data.team_lv || 1);
-                var maxLv = heroTeamLv;
-                if (skillIndex === 3 || skillIndex === 8) maxLv = Math.max(1, heroTeamLv - 20);
-                else if (skillIndex === 4 || skillIndex === 5 || skillIndex === 9 || skillIndex === 10) maxLv = Math.max(1, heroTeamLv - 40);
+                var maxLv = Math.min(80, heroTeamLv);
+                if (skillIndex === 3 || skillIndex === 8) maxLv = Math.min(60, Math.max(1, heroTeamLv - 20));
+                else if (skillIndex === 4 || skillIndex === 5 || skillIndex === 9 || skillIndex === 10) maxLv = Math.min(40, Math.max(1, heroTeamLv - 40));
+                else if (skillIndex === 11 || skillIndex === 12) maxLv = 6;
 
                 if (curLv >= maxLv) {
-                    return respond({}, { code: 1, msg: "Cấp kỹ năng đã đạt giới hạn nhân vật!" }), true;
+                    return respond({}, { code: 1, msg: "Cấp kỹ năng đã đạt giới hạn tối đa!" }), true;
                 }
 
                 newLv = curLv + 1;
@@ -489,12 +490,29 @@ const HeroHandler = {
 
         if (cmd === SVRCMD.SelectTfSkill) {
             var heroId = Number((params && params[0]) || 0);
-            var skillId = Number((params && params[1]) || 0);
+            var skillIdRaw = Number((params && params[1]) || 0);
+            var dualFlag = Number((params && params[2]) || 0);
+            var TF_DUAL_OFFSET = 1000000;
+            var isDual = (dualFlag === 1) || (skillIdRaw >= TF_DUAL_OFFSET);
+            var baseSkillId = skillIdRaw >= TF_DUAL_OFFSET ? (skillIdRaw % TF_DUAL_OFFSET) : skillIdRaw;
+            var encodedSel = baseSkillId;
+
             if (this.data.heros[heroId]) {
-                this.data.heros[heroId].sel_tf_skill = skillId;
+                var h = this.data.heros[heroId];
+                var hCfg = (typeof Config !== "undefined" && Config.hero) ? Config.hero[heroId] : null;
+                var hasBothTf = hCfg && Number(hCfg.skill_id_11 || 0) > 0 && Number(hCfg.skill_id_12 || 0) > 0;
+                var canDual = hasBothTf && (
+                    Number(h.quality || 1) >= 18 ||
+                    Number(h.skill_11_lv || 1) > 4 ||
+                    Number(h.skill_12_lv || 1) > 4
+                );
+                if (isDual && canDual) {
+                    encodedSel = baseSkillId + TF_DUAL_OFFSET;
+                }
+                h.sel_tf_skill = encodedSel;
                 queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroId) });
             }
-            respond({ status: 1, selTfSkill: skillId });
+            respond({ status: 1, selTfSkill: encodedSel });
             return true;
         }
 
@@ -505,14 +523,17 @@ const HeroHandler = {
             if (this.data.heros[heroId] && typeof Config !== "undefined" && Config.hero && Config.hero[heroId]) {
                 var h = this.data.heros[heroId];
                 var hCfg = Config.hero[heroId];
-                if (hCfg.skill_id_11 == skillId) {
-                    var curLv = Number(h.skill_11_lv || 1);
+                var slotKey = null;
+                if (Number(hCfg.skill_id_11) === skillId) slotKey = "skill_11_lv";
+                else if (Number(hCfg.skill_id_12) === skillId) slotKey = "skill_12_lv";
+
+                if (slotKey) {
+                    var curLv = Number(h[slotKey] || 1);
+                    if (curLv >= 6) {
+                        return respond({}, { code: 1, msg: "Kỹ năng thiên phú đã đạt cấp tối đa (+6)!" }), true;
+                    }
                     targetNewLv = Math.min(6, curLv + 1);
-                    h.skill_11_lv = targetNewLv;
-                } else if (hCfg.skill_id_12 == skillId) {
-                    var curLv = Number(h.skill_12_lv || 1);
-                    targetNewLv = Math.min(6, curLv + 1);
-                    h.skill_12_lv = targetNewLv;
+                    h[slotKey] = targetNewLv;
                 }
                 var soulId = this.findSoulItemId(heroId);
                 if (this.getItemAmount(soulId) >= 10) {

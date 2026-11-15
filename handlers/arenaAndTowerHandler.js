@@ -297,18 +297,18 @@ function generateCompetentHeroRecord(hid, level, quality, star, opts) {
         ninja_tool_4: 0,
         ninja_tool_5: 0,
         ninja_tool_6: 0,
-        skill_1_lv: sk1,
-        skill_2_lv: sk2,
-        skill_3_lv: sk3,
-        skill_4_lv: sk4,
-        skill_5_lv: sk5,
-        skill_6_lv: (qVal >= 13) ? level : 0,
-        skill_7_lv: (qVal >= 14) ? level : 0,
-        skill_8_lv: (qVal >= 15) ? Math.max(1, level - 20) : 0,
-        skill_9_lv: (qVal >= 16) ? Math.max(1, level - 40) : 0,
-        skill_10_lv: (qVal >= 17) ? Math.max(1, level - 50) : 0,
-        skill_11_lv: level,
-        skill_12_lv: level,
+        skill_1_lv: Math.min(80, sk1),
+        skill_2_lv: Math.min(80, sk2),
+        skill_3_lv: Math.min(60, sk3),
+        skill_4_lv: Math.min(40, sk4),
+        skill_5_lv: Math.min(40, sk5),
+        skill_6_lv: (qVal >= 13) ? Math.min(80, level) : 0,
+        skill_7_lv: (qVal >= 14) ? Math.min(80, level) : 0,
+        skill_8_lv: (qVal >= 15) ? Math.min(60, Math.max(1, level - 20)) : 0,
+        skill_9_lv: (qVal >= 16) ? Math.min(40, Math.max(1, level - 40)) : 0,
+        skill_10_lv: (qVal >= 17) ? Math.min(40, Math.max(1, level - 50)) : 0,
+        skill_11_lv: Math.min(6, Math.max(1, Math.floor(level / 15) + 1)),
+        skill_12_lv: Math.min(6, Math.max(1, Math.floor(level / 15) + 1)),
         sel_tf_skill: 0,
         secret_1_id: 0, secret_1_lv: 0,
         secret_2_id: 0, secret_2_lv: 0,
@@ -1172,24 +1172,24 @@ function buildOpponentMatchups(session, modeKey, myRank, teamNum, opts) {
     var rotate = !!opts.rotate;
     var uid = session.getNumericId();
     var cacheKey = uid + "_" + modeKey;
+    myRank = Math.max(1, Number(myRank || 50));
 
     if (!rotate && _cachedMatchups[cacheKey] && _cachedMatchups[cacheKey].length >= count) {
         return _cachedMatchups[cacheKey];
     }
 
     var prevIds = [];
+    var prevRanks = {};
     if (_cachedMatchups[cacheKey]) {
         for (var pi = 0; pi < _cachedMatchups[cacheKey].length; pi++) {
             prevIds.push(Number(_cachedMatchups[cacheKey][pi].fighter_id || _cachedMatchups[cacheKey][pi].player_id));
+            prevRanks[Number(_cachedMatchups[cacheKey][pi].rank || 0)] = true;
         }
     }
 
-    var results = [];
-    var usedIds = {};
-
-    // 1. Real players from playerDb ALWAYS come first (no level cap, no artificial 1-slot cap)
+    // Collect all eligible real players (excluding self)
+    var realByRank = [];
     if (opts.includePlayers !== false && playerDb) {
-        var realCandidates = [];
         for (var key in playerDb) {
             var pd = playerDb[key];
             if (!pd || !pd.heros) continue;
@@ -1197,81 +1197,110 @@ function buildOpponentMatchups(session, modeKey, myRank, teamNum, opts) {
             if (rPid === uid) continue;
             var hKeys = Object.keys(pd.heros).map(Number).filter(function (id) { return id > 0; });
             if (hKeys.length === 0) continue;
-            realCandidates.push({ key: key, pd: pd, pid: rPid, pLv: Math.max(1, Number(pd.team_lv || 1)) });
-        }
-        realCandidates.sort(function (a, b) { return a.pid - b.pid; });
-
-        if (realCandidates.length > 0) {
-            var rCur = Number(_matchRotationCursor[cacheKey + "_real"] || 0) % realCandidates.length;
-            var orderedReal = [];
-            for (var rp = 0; rp < 2; rp++) {
-                for (var rc = 0; rc < realCandidates.length; rc++) {
-                    var candItem = realCandidates[(rCur + rc) % realCandidates.length];
-                    var wasShown = prevIds.indexOf(candItem.pid) !== -1;
-                    // When refreshing with more real players than slots, rotate unseen players first
-                    if (realCandidates.length <= count || (rp === 0 && !wasShown) || (rp === 1 && wasShown)) {
-                        if (orderedReal.indexOf(candItem) === -1) orderedReal.push(candItem);
-                    }
-                }
-            }
-
-            for (var ri = 0; ri < orderedReal.length && results.length < count; ri++) {
-                var cand = orderedReal[ri];
-                if (usedIds[cand.pid]) continue;
-                usedIds[cand.pid] = true;
-
-                var rTeams = resolveOtherPlayerModeTeams(session, cand.pd, modeKey, teamNum);
-                var rIcon = Number(cand.pd.icon || 10020);
-                if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[rIcon]) rIcon = 10020;
-                var totalDefPow = 0;
-                for (var pt = 0; pt < rTeams.length; pt++) totalDefPow += calcArenaTeamPower(rTeams[pt]);
-
-                results.push({
-                    isReal: true,
-                    playerKey: cand.key,
-                    rank: getOrInitPlayerModeRank(cand.pd, modeKey),
-                    fighter_id: cand.pid,
-                    player_id: cand.pid,
-                    server_id: Number(cand.pd.server_id || 1),
-                    player_name: cand.pd.team_name || ("Nhẫn Giả #" + cand.pid),
-                    player_lv: cand.pLv,
-                    icon: rIcon,
-                    fight_value: totalDefPow || calcArenaTeamPower(rTeams[0]),
-                    win_count: Number(cand.pd[meta.winField] || 0),
-                    team_num: teamNum,
-                    teams: rTeams,
-                    def_heros: rTeams[0]
-                });
-            }
-            _matchRotationCursor[cacheKey + "_real"] = (rCur + Math.min(count, realCandidates.length)) % realCandidates.length;
+            var pRank = getOrInitPlayerModeRank(pd, modeKey);
+            realByRank.push({
+                key: key,
+                pd: pd,
+                pid: rPid,
+                pLv: Math.max(1, Number(pd.team_lv || 1)),
+                rank: pRank
+            });
         }
     }
 
-    // 2. Only fill remaining slots from static BOT_ARENA_POOL when fewer than `count` real players exist
-    if (results.length < count) {
-        var botCur = Number(_matchRotationCursor[cacheKey + "_bot"] || 0) % BOT_ARENA_POOL.length;
-        var orderedBots = [];
-        for (var pass = 0; pass < 2; pass++) {
-            for (var bi = 0; bi < BOT_ARENA_POOL.length; bi++) {
-                var b = BOT_ARENA_POOL[(botCur + bi) % BOT_ARENA_POOL.length];
-                var wasPrev = prevIds.indexOf(b.id) !== -1;
-                if ((pass === 0 && !wasPrev) || (pass === 1 && wasPrev)) {
-                    if (orderedBots.indexOf(b) === -1) orderedBots.push(b);
-                }
-            }
-        }
-
-        var slotIdx = 0;
-        for (var k = 0; k < orderedBots.length && results.length < count; k++) {
-            var bot = orderedBots[k];
-            if (usedIds[bot.id]) continue;
-            usedIds[bot.id] = true;
-            results.push(buildStaticBotMatchup(bot, modeKey, teamNum, !!opts.isCross));
-            slotIdx++;
-        }
-        _matchRotationCursor[cacheKey + "_bot"] = (botCur + Math.max(1, slotIdx)) % BOT_ARENA_POOL.length;
+    // Build 3 rank bands strictly higher than myRank (top 33%, 33%-66%, 66%-99% of ranks < myRank)
+    var bands = [];
+    if (myRank >= 5) {
+        var totalBetter = myRank - 1;
+        var b1End = Math.max(1, Math.floor(totalBetter * 0.33));
+        var b2Start = b1End + 1;
+        var b2End = Math.max(b2Start, Math.floor(totalBetter * 0.66));
+        var b3Start = b2End + 1;
+        var b3End = Math.max(b3Start, totalBetter);
+        bands.push([1, b1End]);
+        bands.push([b2Start, b2End]);
+        bands.push([b3Start, b3End]);
+    } else if (myRank === 4) {
+        bands.push([1, 1], [2, 2], [3, 3]);
+    } else if (myRank === 3) {
+        bands.push([1, 1], [2, 2], [4, 4]);
+    } else if (myRank === 2) {
+        bands.push([1, 1], [3, 3], [4, 4]);
+    } else {
+        // myRank === 1: pick 3 opponents right below rank 1
+        bands.push([2, 3], [4, 6], [7, 10]);
     }
 
+    var results = [];
+    var usedIds = {};
+    var usedRanks = {};
+
+    function pickRandomFrom(arr, filterPrevFn) {
+        if (!arr || arr.length === 0) return null;
+        var fresh = typeof filterPrevFn === "function" ? arr.filter(filterPrevFn) : arr;
+        var pool = (rotate && fresh.length > 0) ? fresh : arr;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    for (var bi = 0; bi < bands.length && results.length < count; bi++) {
+        var lo = bands[bi][0];
+        var hi = bands[bi][1];
+
+        // 1. Check real players whose rank falls in [lo, hi]
+        var realInBand = realByRank.filter(function (c) {
+            return c.rank >= lo && c.rank <= hi && !usedIds[c.pid] && !usedRanks[c.rank];
+        });
+        var pickedReal = pickRandomFrom(realInBand, function (c) { return prevIds.indexOf(c.pid) === -1; });
+        if (pickedReal) {
+            usedIds[pickedReal.pid] = true;
+            usedRanks[pickedReal.rank] = true;
+            var rTeams = resolveOtherPlayerModeTeams(session, pickedReal.pd, modeKey, teamNum);
+            var rIcon = Number(pickedReal.pd.icon || 10020);
+            if (typeof Config !== "undefined" && Config.player_head && !Config.player_head[rIcon]) rIcon = 10020;
+            var totalDefPow = 0;
+            for (var pt = 0; pt < rTeams.length; pt++) totalDefPow += calcArenaTeamPower(rTeams[pt]);
+
+            results.push({
+                isReal: true,
+                playerKey: pickedReal.key,
+                rank: pickedReal.rank,
+                fighter_id: pickedReal.pid,
+                player_id: pickedReal.pid,
+                server_id: Number(pickedReal.pd.server_id || 1),
+                player_name: pickedReal.pd.team_name || ("Nhẫn Giả #" + pickedReal.pid),
+                player_lv: pickedReal.pLv,
+                icon: rIcon,
+                fight_value: totalDefPow || calcArenaTeamPower(rTeams[0]),
+                win_count: Number(pickedReal.pd[meta.winField] || 0),
+                team_num: teamNum,
+                teams: rTeams,
+                def_heros: rTeams[0]
+            });
+            continue;
+        }
+
+        // 2. Pick a random rank in [lo, hi] and build a bot at that target rank
+        var candidateRanks = [];
+        for (var r = lo; r <= hi; r++) {
+            if (!usedRanks[r]) candidateRanks.push(r);
+        }
+        var targetRank = pickRandomFrom(candidateRanks, function (rVal) { return !prevRanks[rVal]; });
+        if (!targetRank) targetRank = lo;
+        usedRanks[targetRank] = true;
+
+        var botCandidates = BOT_ARENA_POOL.filter(function (b) { return !usedIds[b.id]; });
+        var pickedBot = pickRandomFrom(botCandidates, function (b) { return prevIds.indexOf(b.id) === -1; }) || BOT_ARENA_POOL[bi % BOT_ARENA_POOL.length];
+        var botMatchup = buildStaticBotMatchup(pickedBot, modeKey, teamNum, !!opts.isCross);
+        botMatchup.rank = targetRank;
+        if (usedIds[botMatchup.fighter_id]) {
+            botMatchup.fighter_id = 90000 + targetRank;
+            botMatchup.player_id = botMatchup.fighter_id;
+        }
+        usedIds[botMatchup.fighter_id] = true;
+        results.push(botMatchup);
+    }
+
+    results.sort(function (a, b) { return Number(a.rank || 0) - Number(b.rank || 0); });
     _cachedMatchups[cacheKey] = results;
     return results;
 }
@@ -1371,6 +1400,7 @@ function applyRankSwapAndRecordHistory(modeKey, atkSession, oppMatch, info) {
             rankChange = oldAtkRank - newAtkRank;
         }
         atkData[meta.rankField] = newAtkRank;
+        delete _cachedMatchups[atkUid + "_" + modeKey];
     }
 
     var defName = (defEntry && defEntry.data && defEntry.data.team_name)
@@ -2271,32 +2301,63 @@ const ArenaAndTowerHandler = {
 
         if (cmd === SVRCMD.OpenNinjaFightBox || cmd === SVRCMD.SweepNinja) {
             var curDiff = Number(this.data.expedition_diff || 1);
-            var waveIdx = Number((params && params[0]) || 1);
+            var waveIdx = Math.max(1, Number((params && params[0]) || 1));
             if (!this.data.expedition_picked) this.data.expedition_picked = {};
             this.data.expedition_picked[waveIdx] = 1;
             if (cmd === SVRCMD.SweepNinja) {
                 this.data.daily_counts["PLAYER_DIALY_TASK_11"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_11"] || 0) + 1;
             }
 
-            if (curDiff === 4) {
-                respond({ items: [] });
-                return true;
+            var chapterId = (curDiff === 4) ? 60015 : (60000 + ((waveIdx - 1) % 15) + 1);
+            var diffMult = (curDiff === 4) ? Math.max(3, Math.floor((1 + waveIdx / 10) * 3)) : Math.max(1, curDiff);
+            var rewardItems = [];
+
+            if (typeof Config !== "undefined" && Config.chapter_box && Config.chapter_box[chapterId] && Config.box_drop) {
+                var cbGroup = Config.chapter_box[chapterId];
+                var boxKeys = Object.keys(cbGroup).sort(function (a, b) { return Number(a) - Number(b); });
+                for (var bi = 0; bi < boxKeys.length; bi++) {
+                    var boxId = Number(cbGroup[boxKeys[bi]].box_id || boxKeys[bi]);
+                    var dropMap = Config.box_drop[boxId];
+                    if (!dropMap) continue;
+                    var validDrops = [];
+                    for (var dk in dropMap) {
+                        var dr = dropMap[dk];
+                        if (!dr) continue;
+                        var dt = Number(dr.type || 1);
+                        var did = Number(dr.item_id || 0);
+                        if (dt === 2 && (!Config.equip || !Config.equip[did])) continue;
+                        if ((dt === 1 || dt === 6 || dt === 7) && (!Config.item || !Config.item[did])) continue;
+                        if (dt === 3 && (!Config.hero || !Config.hero[did])) continue;
+                        validDrops.push(dr);
+                    }
+                    if (validDrops.length === 0) continue;
+                    var picked = validDrops[Math.floor(Math.random() * validDrops.length)];
+                    var dType = Number(picked.type || 1);
+                    var dItemId = Number(picked.item_id || 0);
+                    var dAmt = Math.max(1, Number(picked.amount || 1));
+                    if (dType === 4 || dType === 8) {
+                        dAmt = Math.floor(dAmt * diffMult);
+                    } else if (curDiff === 4) {
+                        dAmt = dAmt * 2;
+                    }
+                    this.grantBoxDropReward({ type: dType, item_id: dItemId, amount: dAmt }, queuePush);
+                    rewardItems.push({ box_id: boxId, type: dType, item_id: dItemId, amount: dAmt });
+                }
             }
 
-            var goldGain = 150000 * waveIdx;
-            this.addGold(goldGain, queuePush);
-            var dropEquip = 20000 + waveIdx;
-            this.changeEquipAmount(dropEquip, 3, queuePush);
-            this.addCurrency(11, 500 * waveIdx, queuePush);
-            this.changeItemAmount(50040, 500 * waveIdx, queuePush);
-            this.save();
+            if (rewardItems.length === 0) {
+                var fallbackGold = 50000 * waveIdx * diffMult;
+                var fallbackPts = 50 * waveIdx * diffMult;
+                this.addGold(fallbackGold, queuePush);
+                this.addCurrency(8, fallbackPts, queuePush);
+                rewardItems.push(
+                    { box_id: 60000 + waveIdx * 10 + 1, type: 4, item_id: 0, amount: fallbackGold },
+                    { box_id: 60000 + waveIdx * 10 + 4, type: 8, item_id: 0, amount: fallbackPts }
+                );
+            }
 
-            respond({
-                items: [
-                    { box_id: 60000 + waveIdx * 10 + 1, type: 4, item_id: 0, amount: goldGain },
-                    { box_id: 60000 + waveIdx * 10 + 2, type: 2, item_id: dropEquip, amount: 3 }
-                ]
-            });
+            this.save();
+            respond({ items: rewardItems });
             return true;
         }
 
@@ -3114,39 +3175,131 @@ const ArenaAndTowerHandler = {
         }
 
         // 5. Cứ Điểm Khai Khoáng (DugTreasure, SearchTreasure, ReviceTreasure, Plunder)
+        var buildTreasureHerosAndPower = function (playerData, heroIdsInput, fallbackLv) {
+            var ids = [];
+            if (Array.isArray(heroIdsInput)) {
+                ids = heroIdsInput.map(Number).filter(function (x) { return x > 0; });
+            } else if (heroIdsInput) {
+                ids = String(heroIdsInput).split(",").map(Number).filter(function (x) { return x > 0; });
+            }
+
+            var payloads = [];
+            var finalIds = [];
+            var totalPower = 0;
+
+            if (playerData && playerData.heros) {
+                var pSession = Object.create(self);
+                pSession.data = playerData;
+                for (var hi = 0; hi < ids.length; hi++) {
+                    var hid = ids[hi];
+                    if (playerData.heros[hid] && typeof pSession.computeHeroPayload === "function") {
+                        var hp = pSession.computeHeroPayload(hid);
+                        payloads.push(hp);
+                        finalIds.push(hid);
+                        totalPower += Number(hp.power || 0);
+                    }
+                }
+                if (payloads.length === 0) {
+                    var availIds = Object.keys(playerData.heros).map(Number).filter(function (x) { return x > 0; }).slice(0, 5);
+                    for (var ai = 0; ai < availIds.length; ai++) {
+                        var hp2 = pSession.computeHeroPayload(availIds[ai]);
+                        payloads.push(hp2);
+                        finalIds.push(availIds[ai]);
+                        totalPower += Number(hp2.power || 0);
+                    }
+                }
+            }
+
+            if (payloads.length === 0) {
+                var botLv = Math.min(100, Math.max(20, Number(fallbackLv || 40)));
+                var botQ = Math.min(15, Math.max(4, Math.floor(botLv / 8) + 2));
+                var botSeedIds = (ids.length > 0) ? ids : [10020, 10040, 10250, 10070, 10120];
+                for (var bi = 0; bi < botSeedIds.length && payloads.length < 5; bi++) {
+                    var bHid = botSeedIds[bi];
+                    if (typeof Config !== "undefined" && Config.hero && !Config.hero[bHid]) bHid = 10020;
+                    var botHero = generateCompetentHeroRecord(bHid, botLv, botQ, true);
+                    payloads.push(botHero);
+                    finalIds.push(bHid);
+                    totalPower += Number(botHero.power || 0);
+                }
+            }
+
+            return {
+                heroIdsStr: finalIds.join(","),
+                herosJson: JSON.stringify(payloads),
+                fightValue: Math.max(1000, Math.floor(totalPower))
+            };
+        };
+
+        var ensureTreasureHasHeros = function (tr, ownerData) {
+            if (!tr) return tr;
+            var needRebuild = !tr.heros || tr.heros === "[]" || tr.heros.length < 5;
+            if (!needRebuild) {
+                try {
+                    var parsed = JSON.parse(tr.heros);
+                    if (!Array.isArray(parsed) || parsed.length === 0) needRebuild = true;
+                } catch (e) {
+                    needRebuild = true;
+                }
+            }
+            if (needRebuild) {
+                var built = buildTreasureHerosAndPower(ownerData, tr.hero_ids, tr.player_lv || 40);
+                tr.hero_ids = built.heroIdsStr;
+                tr.heros = built.herosJson;
+                tr.fight_value = built.fightValue;
+            }
+            return tr;
+        };
+
+        if (!global._searchedTreasureCache) global._searchedTreasureCache = {};
+
         if (cmd === SVRCMD.GetTreasureDropMulti) {
             respond({ mulit: 0, multi: 0 });
             return true;
         }
 
         if (cmd === SVRCMD.PlayerTreasure) {
-            respond({ treasures: this.data.treasures || [] });
+            var myTreasures = Array.isArray(this.data.treasures) ? this.data.treasures : [];
+            var dirtyMine = false;
+            for (var pti = 0; pti < myTreasures.length; pti++) {
+                var beforeLen = (myTreasures[pti] && myTreasures[pti].heros) ? myTreasures[pti].heros.length : 0;
+                ensureTreasureHasHeros(myTreasures[pti], this.data);
+                if (myTreasures[pti] && myTreasures[pti].heros.length !== beforeLen) dirtyMine = true;
+            }
+            if (dirtyMine) this.save();
+            respond({ treasures: myTreasures });
             return true;
         }
 
         if (cmd === SVRCMD.DugTreasure) {
-            var mineId = (this.data.treasures ? this.data.treasures.length : 0) + 1;
+            if (!Array.isArray(this.data.treasures)) this.data.treasures = [];
+            var maxId = 0;
+            for (var di = 0; di < this.data.treasures.length; di++) {
+                if (Number(this.data.treasures[di].id || 0) > maxId) maxId = Number(this.data.treasures[di].id || 0);
+            }
+            var mineId = maxId + 1;
             var nowSec = Math.floor(Date.now() / 1000);
+            var builtMine = buildTreasureHerosAndPower(this.data, params && params[1], this.data.team_lv || 1);
             var newTreasure = {
                 id: mineId,
                 status: 1,
                 types: (params && params[0]) ? Number(params[0]) : 3,
                 can_pick: 0,
                 has_pick: 0,
-                hero_ids: (params && params[1]) ? String(params[1]) : "10010,10020,10030,10040,10050",
+                hero_ids: builtMine.heroIdsStr,
                 player_id: this.getNumericId(),
                 player_lv: Number(this.data.team_lv || 1),
                 player_name: this.data.team_name || "Nhẫn Giả",
                 player_icon: Number(this.data.icon || 2010080),
-                fight_value: 12500,
+                fight_value: builtMine.fightValue,
                 create_time: nowSec,
                 plunder_time: nowSec + 14400,
                 robbed_at: 0,
                 is_plundered: 0,
-                heros: "[]"
+                heros: builtMine.herosJson
             };
-            if (!this.data.treasures) this.data.treasures = [];
             this.data.treasures.push(newTreasure);
+            this.data.daily_counts["DUG_COUNT"] = Number(this.data.daily_counts["DUG_COUNT"] || 0) + 1;
             this.data.daily_counts["PLAYER_DIALY_TASK_16"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_16"] || 0) + 1;
             this.save();
             respond({ treasure: newTreasure });
@@ -3156,119 +3309,207 @@ const ArenaAndTowerHandler = {
         if (cmd === SVRCMD.SearchTreasure) {
             var nowSec = Math.floor(Date.now() / 1000);
             var myUid = this.getNumericId();
-            var targetMine = null;
+            var candidates = [];
 
-            // Tìm một người chơi khác đang chiếm cứ điểm khai thác (không lấy bản thân)
+            // Tìm người chơi khác đang chiếm cứ điểm khai thác (không lấy bản thân)
             if (typeof playerDb !== "undefined") {
                 for (var pKey in playerDb) {
                     var pData = playerDb[pKey];
                     if (pData && Number(pData.uid) !== myUid && Array.isArray(pData.treasures) && pData.treasures.length > 0) {
                         for (var ti = 0; ti < pData.treasures.length; ti++) {
                             var tr = pData.treasures[ti];
-                            if (tr && tr.status === 1) {
-                                targetMine = {
-                                    id: tr.id || 1,
-                                    status: 1,
-                                    types: tr.types || 1,
-                                    can_pick: 0,
-                                    has_pick: 0,
-                                    hero_ids: tr.hero_ids || "10020,10040,10250",
-                                    player_id: Number(pData.uid || 201),
-                                    player_lv: Number(pData.team_lv || 50),
-                                    player_name: pData.team_name || "Nhẫn Giả",
-                                    player_icon: Number(pData.icon || 10020),
-                                    fight_value: tr.fight_value || 6000,
-                                    create_time: tr.create_time || (nowSec - 1800),
-                                    plunder_time: nowSec + 10800,
-                                    robbed_at: 0,
-                                    is_plundered: 0,
-                                    heros: tr.heros || "[]"
-                                };
-                                break;
+                            if (tr && Number(tr.status) === 1) {
+                                ensureTreasureHasHeros(tr, pData);
+                                candidates.push({
+                                    mine: {
+                                        id: tr.id || 1,
+                                        status: 1,
+                                        types: tr.types || 1,
+                                        can_pick: 0,
+                                        has_pick: 0,
+                                        hero_ids: tr.hero_ids,
+                                        player_id: Number(pData.uid || 201),
+                                        player_lv: Number(pData.team_lv || 50),
+                                        player_name: pData.team_name || "Nhẫn Giả",
+                                        player_icon: Number(pData.icon || 10020),
+                                        fight_value: tr.fight_value || 6000,
+                                        create_time: tr.create_time || (nowSec - 1800),
+                                        plunder_time: nowSec + 10800,
+                                        robbed_at: 0,
+                                        is_plundered: 0,
+                                        heros: tr.heros
+                                    },
+                                    group_name: pData.group_name || ""
+                                });
                             }
                         }
                     }
-                    if (targetMine) break;
                 }
             }
 
-            // Nếu không có người chơi nào chiếm thì sinh Bot chiếm giữ cứ điểm
+            var pickedEntry = candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)] : null;
+            var targetMine = pickedEntry ? pickedEntry.mine : null;
+            var targetGroupName = pickedEntry ? pickedEntry.group_name : "";
+
+            // Nếu không có người chơi nào chiếm thì sinh Bot chiếm giữ cứ điểm với đầy đủ đội hình
             if (!targetMine) {
                 var oppId = 200 + Math.floor(Math.random() * 50);
-                var botNames = ["Uchiha Shisui", "Hidan", "Kakuzu", "Deidara", "Sasori", "Kisame"];
+                var mId = Math.floor(Math.random() * 10) + 1;
+                var botNames = ["Uchiha Shisui", "Hidan", "Kakuzu", "Deidara", "Sasori", "Kisame", "Konan", "Nagato"];
                 var randomName = botNames[Math.floor(Math.random() * botNames.length)];
+                var botLv = Math.min(100, Math.max(30, Number(this.data.team_lv || 40)));
+                var botPools = [
+                    "10020,10040,10250,10070,10120",
+                    "10110,10120,10140,10150,10160",
+                    "10200,10230,10400,10500,10510",
+                    "10010,10030,10050,10130,10270"
+                ];
+                var pickedIds = botPools[Math.floor(Math.random() * botPools.length)];
+                var botBuilt = buildTreasureHerosAndPower(null, pickedIds, botLv);
                 targetMine = {
-                    id: Math.floor(Math.random() * 10) + 1,
+                    id: mId,
                     status: 1,
                     types: Math.floor(Math.random() * 3) + 1,
                     can_pick: 0,
                     has_pick: 0,
-                    hero_ids: "10020,10040,10250,10070,10120",
+                    hero_ids: botBuilt.heroIdsStr,
                     player_id: oppId,
-                    player_lv: Math.min(100, Math.max(30, Number(this.data.team_lv || 40))),
+                    player_lv: botLv,
                     player_name: randomName,
-                    player_icon: 10020,
-                    fight_value: 4500 + Math.floor(Math.random() * 2000),
+                    player_icon: Number(botBuilt.heroIdsStr.split(",")[0] || 10020),
+                    fight_value: botBuilt.fightValue,
                     create_time: nowSec - 3600,
                     plunder_time: nowSec + 10800,
                     robbed_at: 0,
                     is_plundered: 0,
-                    heros: "[]"
+                    heros: botBuilt.herosJson
                 };
             }
 
-            respond({ treasure: targetMine });
+            if (!global._searchedTreasureCache[myUid]) global._searchedTreasureCache[myUid] = {};
+            global._searchedTreasureCache[myUid][targetMine.player_id + "_" + targetMine.id] = targetMine;
+            global._searchedTreasureCache[myUid]._latest = targetMine;
+
+            respond({ treasure: targetMine, group_name: targetGroupName });
             return true;
         }
 
         if (cmd === SVRCMD.TreasureInfo) {
-            var oppId = Number((params && params[0]) || 215);
-            var mId = Number((params && params[1]) || 6);
+            var oppId = Number((params && params[0]) || 0);
+            var mId = Number((params && params[1]) || 1);
+            var myUid = this.getNumericId();
             var nowSec = Math.floor(Date.now() / 1000);
-            respond({
-                treasure: {
+            var foundMine = null;
+
+            // 1. Xem cứ điểm của chính mình
+            if (oppId === myUid || oppId === 0) {
+                var ownList = Array.isArray(this.data.treasures) ? this.data.treasures : [];
+                for (var oi = 0; oi < ownList.length; oi++) {
+                    if (Number(ownList[oi].id) === mId) {
+                        foundMine = ensureTreasureHasHeros(ownList[oi], this.data);
+                        break;
+                    }
+                }
+                if (!foundMine && ownList.length > 0) {
+                    foundMine = ensureTreasureHasHeros(ownList[0], this.data);
+                }
+            }
+
+            // 2. Xem cứ điểm từ kết quả SearchTreasure đã cache
+            if (!foundMine && global._searchedTreasureCache[myUid]) {
+                var uCache = global._searchedTreasureCache[myUid];
+                foundMine = uCache[oppId + "_" + mId] || uCache._latest || null;
+            }
+
+            // 3. Tìm trong playerDb
+            if (!foundMine && typeof playerDb !== "undefined") {
+                for (var pk in playerDb) {
+                    var pd = playerDb[pk];
+                    if (pd && Number(pd.uid) === oppId && Array.isArray(pd.treasures)) {
+                        for (var pti2 = 0; pti2 < pd.treasures.length; pti2++) {
+                            if (Number(pd.treasures[pti2].id) === mId) {
+                                foundMine = ensureTreasureHasHeros(pd.treasures[pti2], pd);
+                                break;
+                            }
+                        }
+                    }
+                    if (foundMine) break;
+                }
+            }
+
+            // 4. Fallback sinh Bot với đầy đủ đội hình
+            if (!foundMine) {
+                var botLvFallback = Math.min(100, Math.max(30, Number(this.data.team_lv || 40)));
+                var builtFallback = buildTreasureHerosAndPower(null, "10070,10400,10120,10200,10230", botLvFallback);
+                foundMine = {
                     id: mId,
                     status: 1,
                     types: 3,
                     can_pick: 0,
                     has_pick: 0,
-                    hero_ids: "10070,10400,10120,10200,10230",
-                    player_id: oppId,
-                    player_lv: 90,
-                    player_name: "Nhẫn Giả " + oppId,
-                    player_icon: 1010020,
-                    fight_value: 5888,
+                    hero_ids: builtFallback.heroIdsStr,
+                    player_id: oppId || 215,
+                    player_lv: botLvFallback,
+                    player_name: "Nhẫn Giả " + (oppId || 215),
+                    player_icon: 10070,
+                    fight_value: builtFallback.fightValue,
                     create_time: nowSec - 3600,
                     plunder_time: nowSec + 10800,
                     robbed_at: 0,
                     is_plundered: 0,
-                    heros: "[]"
-                }
-            });
+                    heros: builtFallback.herosJson
+                };
+            }
+
+            respond({ treasure: foundMine });
             return true;
         }
 
         if (cmd === SVRCMD.BeforePlunderTreasure) {
+            var targetPid = Number((params && params[0]) || 0);
+            var targetMineId = Number((params && params[1]) || 0);
+            this._pendingPlunder = { player_id: targetPid, mine_id: targetMineId };
             respond({ sign: "plunder_" + Date.now(), seed: Math.floor(Math.random() * 1000000) });
             return true;
         }
 
         if (cmd === SVRCMD.AfterPlunderTreasure) {
-            var lootItems = [
-                { item_id: 60010, amount: 10, type: 1 },
-                { item_id: 10210, amount: 8, type: 1 },
-                { item_id: 40010, amount: 5, type: 1 }
-            ];
-            for (var li = 0; li < lootItems.length; li++) {
-                this.changeItemAmount(lootItems[li].item_id, lootItems[li].amount, queuePush);
+            var isWin = Number((params && params[1]) !== undefined ? params[1] : 1);
+            var lootItems = [];
+            var goldReward = 0;
+            if (isWin === 1) {
+                goldReward = 50000;
+                lootItems = [
+                    { item_id: 60010, amount: 10, type: 1 },
+                    { item_id: 10210, amount: 8, type: 1 },
+                    { item_id: 40010, amount: 5, type: 1 }
+                ];
+                for (var li = 0; li < lootItems.length; li++) {
+                    this.changeItemAmount(lootItems[li].item_id, lootItems[li].amount, queuePush);
+                }
+                this.addGold(goldReward, queuePush);
+                if (this._pendingPlunder && typeof playerDb !== "undefined") {
+                    for (var pk2 in playerDb) {
+                        var pd2 = playerDb[pk2];
+                        if (pd2 && Number(pd2.uid) === this._pendingPlunder.player_id && Array.isArray(pd2.treasures)) {
+                            for (var ti2 = 0; ti2 < pd2.treasures.length; ti2++) {
+                                if (Number(pd2.treasures[ti2].id) === this._pendingPlunder.mine_id) {
+                                    pd2.treasures[ti2].is_plundered = 1;
+                                    pd2.treasures[ti2].robbed_at = Math.floor(Date.now() / 1000);
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            this.addGold(50000, queuePush);
+            this._pendingPlunder = null;
+            this.data.daily_counts["PLUNDER_COUNT"] = Number(this.data.daily_counts["PLUNDER_COUNT"] || 0) + 1;
             this.data.total_plunder_count = Number(this.data.total_plunder_count || 0) + 1;
             this.save();
             respond({
-                tg_num: 5,
-                awardedItemIds: [60010, 10210, 40010],
-                gold: 50000,
+                tg_num: isWin === 1 ? 5 : 0,
+                awardedItemIds: lootItems.map(function (it) { return it.item_id; }),
+                gold: goldReward,
                 items: lootItems,
                 itemBalances: lootItems.map(function (it) {
                     var curCnt = self.getItemAmount(it.item_id);
@@ -3284,6 +3525,10 @@ const ArenaAndTowerHandler = {
         }
 
         if (cmd === SVRCMD.ReviceTreasure) {
+            var revMineId = Number((params && params[0]) || 0);
+            if (Array.isArray(this.data.treasures) && revMineId > 0) {
+                this.data.treasures = this.data.treasures.filter(function (t) { return Number(t.id) !== revMineId; });
+            }
             var addGold = 140000;
             var addDiamond = 60;
             this.addGold(addGold, queuePush);
@@ -3310,7 +3555,28 @@ const ArenaAndTowerHandler = {
             return true;
         }
 
-        if (cmd === "HeroRecall" || cmd === "ResetTreasureLinneup" || cmd === SVRCMD.HeroRecall || cmd === SVRCMD.ResetTreasureLinneup) {
+        if (cmd === "ResetTreasureLinneup" || cmd === SVRCMD.ResetTreasureLinneup) {
+            var resetMineId = Number((params && params[0]) || 0);
+            var newHeroIdsStr = String((params && params[1]) || "");
+            var updatedMine = null;
+            if (Array.isArray(this.data.treasures)) {
+                for (var ri = 0; ri < this.data.treasures.length; ri++) {
+                    if (Number(this.data.treasures[ri].id) === resetMineId || (resetMineId === 0 && ri === 0)) {
+                        var builtReset = buildTreasureHerosAndPower(this.data, newHeroIdsStr, this.data.team_lv || 1);
+                        this.data.treasures[ri].hero_ids = builtReset.heroIdsStr;
+                        this.data.treasures[ri].heros = builtReset.herosJson;
+                        this.data.treasures[ri].fight_value = builtReset.fightValue;
+                        updatedMine = this.data.treasures[ri];
+                        break;
+                    }
+                }
+            }
+            this.save();
+            respond({ status: 1, treasure: updatedMine });
+            return true;
+        }
+
+        if (cmd === "HeroRecall" || cmd === SVRCMD.HeroRecall) {
             respond({ status: 1 });
             return true;
         }

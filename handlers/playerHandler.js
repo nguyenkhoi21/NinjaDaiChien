@@ -63,10 +63,26 @@ function handlePlayer(cmd, params, respond, queuePush) {
     }
     if (cmd === SVRCMD.GetAllHeroStatus) {
         const stMap = {};
-        for (const hk in (this.data.heros || {})) {
-            stMap[hk] = 0;
+        const miningIds = {};
+        if (Array.isArray(this.data.treasures)) {
+            for (let ti = 0; ti < this.data.treasures.length; ti++) {
+                const tr = this.data.treasures[ti];
+                if (tr && Number(tr.status) === 1 && tr.hero_ids) {
+                    const parts = String(tr.hero_ids).split(",");
+                    for (let pi = 0; pi < parts.length; pi++) {
+                        const hidNum = Number(parts[pi]);
+                        if (hidNum > 0) miningIds[hidNum] = true;
+                    }
+                }
+            }
         }
-        respond({ status: stMap });
+        const heroStatusArr = [];
+        for (const hk in (this.data.heros || {})) {
+            const st = miningIds[Number(hk)] ? 2 : 0;
+            stMap[hk] = st;
+            heroStatusArr.push({ hero_id: Number(hk), status: st });
+        }
+        respond({ status: stMap, heros: heroStatusArr });
         return true;
     }
 
