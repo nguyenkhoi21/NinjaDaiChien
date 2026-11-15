@@ -372,13 +372,15 @@ function computeOtherPlayerHeroPayload(session, pd, hid) {
     hid = Number(hid);
     if (pd && pd.heros && pd.heros[hid] && session && typeof session.computeHeroPayload === "function") {
         try {
-            var clonedHeros = {};
+            var clonedHeros = Object.assign({}, pd.heros);
             clonedHeros[hid] = Object.assign({}, pd.heros[hid]);
             var fakeCtx = {
                 data: {
                     heros: clonedHeros,
                     beasts: pd.beasts || {},
-                    secrets: pd.secrets || []
+                    secrets: pd.secrets || [],
+                    items: pd.items || {},
+                    vip_lv: Number(pd.vip_lv || 0)
                 },
                 createDefaultHeroRecord: session.createDefaultHeroRecord
             };

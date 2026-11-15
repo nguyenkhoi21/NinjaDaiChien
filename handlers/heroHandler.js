@@ -4,7 +4,7 @@
 // ============================================================================
 
 const HeroHandler = {
-    getMaxSkillPoint: function() {
+    getMaxSkillPoint: function () {
         var vipLv = Number(this.data.vip_lv || 0);
         if (vipLv >= 5) {
             return 50 + (vipLv - 5);
@@ -12,7 +12,7 @@ const HeroHandler = {
         return 10;
     },
 
-    getSkillPointInfo: function() {
+    getSkillPointInfo: function () {
         var maxPoint = this.getMaxSkillPoint();
         var nowSec = Math.floor(Date.now() / 1000);
         if (this.data.skill_point === undefined || this.data.skill_point === null) {
@@ -45,7 +45,7 @@ const HeroHandler = {
         };
     },
 
-    deductSkillPoint: function(amount) {
+    deductSkillPoint: function (amount) {
         var sInfo = this.getSkillPointInfo();
         var cur = sInfo.leftCount;
         var nowSec = Math.floor(Date.now() / 1000);
@@ -57,7 +57,7 @@ const HeroHandler = {
         return this.data.skill_point;
     },
 
-    createDefaultHeroRecord: function(hid) {
+    createDefaultHeroRecord: function (hid) {
         hid = Number(hid);
         var star = 1;
         if (typeof Config !== "undefined" && Config.hero && Config.hero[hid] && Config.hero[hid].star) {
@@ -102,7 +102,7 @@ const HeroHandler = {
         };
     },
 
-    computeHeroPayload: function(hid) {
+    computeHeroPayload: function (hid) {
         hid = Number(hid);
         if (!this.data.heros[hid]) {
             this.data.heros[hid] = this.createDefaultHeroRecord(hid);
@@ -239,6 +239,59 @@ const HeroHandler = {
             }
         }
 
+        // Friendship (Bạn / Duyên) global stat bonuses
+        if (typeof Config !== "undefined" && Config.friendship) {
+            var herosMap = this.data.heros || {};
+            var itemsMap = this.data.items || {};
+            var vipLv = Number(this.data.vip_lv || 0);
+            for (var fKey in Config.friendship) {
+                var fCfg = Config.friendship[fKey];
+                if (!fCfg || !fCfg.heros) continue;
+                var reqIds = String(fCfg.heros).split("/").filter(Boolean);
+                if (reqIds.length === 0) continue;
+                var fLevel = 0;
+                var unlocked = true;
+                if (Number(fCfg.type) === 1) {
+                    var minQ = Infinity;
+                    for (var fi = 0; fi < reqIds.length; fi++) {
+                        var reqHero = herosMap[Number(reqIds[fi])];
+                        if (!reqHero) {
+                            unlocked = false;
+                            break;
+                        }
+                        var rq = Number(reqHero.quality || 1);
+                        if (rq < minQ) minQ = rq;
+                    }
+                    if (unlocked && minQ < Infinity) fLevel = minQ;
+                } else {
+                    for (var fi2 = 0; fi2 < reqIds.length; fi2++) {
+                        var reqItemId = Number(reqIds[fi2]);
+                        var itCfg = Config.item && Config.item[reqItemId];
+                        if (itCfg && Number(itCfg.quality) === 1) {
+                            if (vipLv < Number(itCfg.sell_price || 0)) {
+                                unlocked = false;
+                                break;
+                            }
+                        } else if (Number(itemsMap[reqItemId] || 0) <= 0) {
+                            unlocked = false;
+                            break;
+                        }
+                    }
+                    if (unlocked) fLevel = 1;
+                }
+                if (unlocked && fLevel > 0) {
+                    var fMult = fLevel > 10 ? 2 : 1;
+                    if (Number(fCfg.hp || 0) !== 0) hp += (Number(fCfg.hp) + (fLevel - 1) * Number(fCfg.hp_inc || 0)) * fMult;
+                    if (Number(fCfg.atk || 0) !== 0) atk += (Number(fCfg.atk) + (fLevel - 1) * Number(fCfg.atk_inc || 0)) * fMult;
+                    if (Number(fCfg.def || 0) !== 0) def += (Number(fCfg.def) + (fLevel - 1) * Number(fCfg.def_inc || 0)) * fMult;
+                    if (Number(fCfg.mp || 0) !== 0) mp += (Number(fCfg.mp) + (fLevel - 1) * Number(fCfg.mp_inc || 0)) * fMult;
+                    if (Number(fCfg.mp_def || 0) !== 0) mp_def += (Number(fCfg.mp_def) + (fLevel - 1) * Number(fCfg.mp_def_inc || 0)) * fMult;
+                    if (Number(fCfg.cri || 0) !== 0) cri += (Number(fCfg.cri) + (fLevel - 1) * Number(fCfg.cri_inc || 0)) * fMult;
+                    if (Number(fCfg.mp_cri || 0) !== 0) mp_cri += (Number(fCfg.mp_cri) + (fLevel - 1) * Number(fCfg.mp_cri_inc || 0)) * fMult;
+                }
+            }
+        }
+
         var finalHp = Math.floor(hp);
         var finalAtk = Math.floor(atk);
         var finalDef = Math.floor(def);
@@ -246,8 +299,69 @@ const HeroHandler = {
         var finalMpDef = Math.floor(mp_def);
         var finalCri = Number(cri.toFixed(2));
         var finalMpCri = Number(mp_cri.toFixed(2));
-        var skillSum = Number(h.skill_1_lv || 1) + Number(h.skill_2_lv || 0) + Number(h.skill_3_lv || 0) + Number(h.skill_4_lv || 0) + Number(h.skill_5_lv || 0);
-        var totalPower = Math.floor(finalHp * 0.1 + finalAtk * 0.6 + finalDef * 0.3 + finalMp * 0.6 + finalMpDef * 0.3 + finalCri * 25 + finalMpCri * 25 + skillSum * 4);
+        var skillSum = 0;
+        for (var ski = 1; ski <= 5; ski++) {
+            var sBase = Number(h["skill_" + ski + "_lv"] || (ski === 1 ? 1 : 0));
+            var sRep = Number(h["skill_" + (ski + 5) + "_lv"] || 0);
+            var sMax = Math.max(sBase, sRep);
+            if (sMax > 0) skillSum += sMax;
+        }
+        var rawPower = finalHp * 0.1 + finalAtk * 0.6 + finalDef * 0.3 + finalMp * 0.6 + finalMpDef * 0.3 + finalCri * 25 + finalMpCri * 25 + skillSum * 4;
+
+        // Tactic scrolls (secret_1..6) fight_value
+        if (typeof Config !== "undefined" && Config.equip_level) {
+            for (var tp = 1; tp <= 6; tp++) {
+                var tSec = secMap[tp];
+                if (!tSec) continue;
+                var tEqCfg = Config.equip && Config.equip[tSec.equip_id];
+                var tSkId = (tEqCfg && (Number(tEqCfg.type) === 2 || Number(tEqCfg.type) === 3)) ? tEqCfg.skill : tSec.equip_id;
+                var tSkCfg = Config.skill && Config.skill[tSkId];
+                var tLv = Math.max(1, Number(tSec.lv || 1));
+                if (tSkCfg && Config.equip_level[tLv] && Config.equip_level[tLv][tSkCfg.quality]) {
+                    rawPower += Number(Config.equip_level[tLv][tSkCfg.quality].fight_value || 0);
+                }
+            }
+        }
+
+        // Ninja tools (ninja_tool_1..6) fight_value
+        if (typeof Config !== "undefined" && Config.ninja_tool) {
+            for (var nti = 1; nti <= 6; nti++) {
+                var ntId = Number(h["ninja_tool_" + nti] || 0);
+                if (ntId > 0 && Config.ninja_tool[ntId]) {
+                    rawPower += Number(Config.ninja_tool[ntId].fight_value || 0);
+                }
+            }
+        }
+
+        // Gem passive stat power (matches client Hero.getGemStatPower)
+        if (typeof Config !== "undefined" && Config.equip && Config.skill) {
+            var gemFields = { 3: "maxhp", 4: "magicDmg", 7: "physicDmg", 8: "physicDef", 9: "magicDef" };
+            var gemWeights = { maxhp: 0.1, magicDmg: 0.6, physicDmg: 0.6, physicDef: 0.3, magicDef: 0.3 };
+            var gemBase = { maxhp: finalHp, magicDmg: finalMp, physicDmg: finalAtk, physicDef: finalDef, magicDef: finalMpDef };
+            var gemVals = { maxhp: finalHp, magicDmg: finalMp, physicDmg: finalAtk, physicDef: finalDef, magicDef: finalMpDef };
+            for (var gp = 101; gp <= 106; gp++) {
+                var gSec = secMap[gp];
+                if (!gSec) continue;
+                var gEqCfg = Config.equip[gSec.equip_id];
+                if (!gEqCfg || Number(gEqCfg.type) !== 3) continue;
+                var gSkCfg = Config.skill[gEqCfg.skill];
+                if (!gSkCfg) continue;
+                var gLv = Math.max(1, Number(gSec.lv || 1));
+                for (var vj = 1; vj <= 3; vj++) {
+                    var vPrefix = "var_" + vj + "_";
+                    var vField = gemFields[Number(gSkCfg[vPrefix + "effect"])];
+                    if (!vField || (vField === "maxhp" && hid === 15281)) continue;
+                    var vAmt = Number(gSkCfg[vPrefix + "base"] || 0) + (gLv - 1) * Number(gSkCfg[vPrefix + "inc"] || 0);
+                    if (Number(gSkCfg[vPrefix + "type"]) === 0) gemVals[vField] += vAmt;
+                    else gemVals[vField] *= (1 + vAmt);
+                }
+            }
+            for (var gk in gemWeights) {
+                rawPower += (gemVals[gk] - gemBase[gk]) * gemWeights[gk];
+            }
+        }
+
+        var totalPower = Math.floor(rawPower);
 
         return {
             id: hid,
@@ -322,7 +436,7 @@ const HeroHandler = {
         };
     },
 
-    handleHeroCommand: function(cmd, params, respond, queuePush) {
+    handleHeroCommand: function (cmd, params, respond, queuePush) {
         var self = this;
 
         if (cmd === SVRCMD.LearnEquip || cmd === SVRCMD.HeroEquip) {
