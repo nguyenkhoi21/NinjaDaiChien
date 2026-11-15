@@ -33,7 +33,7 @@ function handlePlayer(cmd, params, respond, queuePush) {
                 create_time: this.data.create_time || (nowSec - 86400),
                 last_signin_time: nowSec,
                 last_signin_ip: "127.0.0.1",
-                avatar_frame_ids: [801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811]
+                avatar_frame_ids: [801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811, 812]
             },
             player_attr: this.buildPlayerAttrPayload()
         });
@@ -270,7 +270,7 @@ function handlePlayer(cmd, params, respond, queuePush) {
         queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
         respond({
             icon: this.data.icon,
-            avatar_frame_ids: [10, 21, 22, 23, 24, 25, 50, 60, 330, 340, 350, 360, 370, 690, 801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811]
+            avatar_frame_ids: [10, 21, 22, 23, 24, 25, 50, 60, 330, 340, 350, 360, 370, 690, 801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811, 812]
         });
         return true;
     }

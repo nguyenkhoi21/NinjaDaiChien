@@ -28,6 +28,7 @@ const {
     loadDbFromSupabase,
     markDirty,
     saveDb,
+    scheduleSaveDb,
     getOrAssignUid,
     findPlayerByIdOrUid
 } = require('./db/database');
@@ -54,6 +55,8 @@ const EventAndSignInHandler = require('./handlers/eventAndSignInHandler');
 const ArenaAndTowerHandler = require('./handlers/arenaAndTowerHandler');
 const GuildHandler = require('./handlers/guildHandler');
 const GmAndChatHandler = require('./handlers/gmAndChatHandler');
+const { handleGmWebRequest } = require('./handlers/gmWebHandler');
+const { getServerSettings } = require('./config/serverSettings');
 
 const PORT = process.env.PORT || 8088;
 
@@ -441,7 +444,7 @@ class PlayerSession {
             }
 
             markDirty(this.playerId);
-            saveDb();
+            scheduleSaveDb();
         };
 
         this.server.handle(cmd, params, respond, queuePush);
@@ -706,6 +709,7 @@ const server = http.createServer((req, res) => {
                     const svrHost = hostParts[0];
                     const svrPort = hostParts[1] ? Number(hostParts[1]) : 443;
                     return sendJson({
+                        server_theme: getServerSettings().theme,
                         servers: [{
                             id: 1,
                             name: "Ninja Đại Chiến",
@@ -764,6 +768,10 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (handleGmWebRequest(req, res, { playerDb, markDirty, saveDb, connectedSockets, OfflineServer })) {
+        return;
+    }
+
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
         <!DOCTYPE html>
@@ -775,6 +783,8 @@ const server = http.createServer((req, res) => {
             <p><b>Port:</b> ${PORT} (WebSocket: <code>ws://YOUR_IP:${PORT}</code>)</p>
             <p><b>Online Players:</b> ${connectedSockets.size}</p>
             <p><b>Registered Players:</b> ${Object.keys(playerDb).length}</p>
+            <p><b>Theme hiện tại:</b> ${getServerSettings().theme}</p>
+            <p><a href="/gm" style="display:inline-block;padding:10px 16px;background:#2f81f7;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;">🛠️ Mở GM Panel &amp; Chọn Theme (/gm)</a></p>
             <hr style="border-color:#444;" />
             <p>Ready for connections from Ninja Rebirth APK & IPA!</p>
         </body>
@@ -804,6 +814,7 @@ server.on('upgrade', (req, socket, head) => {
     console.log(`[+] Client connected from ${req.socket.remoteAddress}. Total online: ${connectedSockets.size}`);
 
     const session = new PlayerSession(socket);
+    socket._session = session;
 
     setTimeout(() => {
         if (!socket.destroyed && !session.hasLoggedIn) {

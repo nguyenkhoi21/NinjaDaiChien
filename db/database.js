@@ -141,6 +141,16 @@ function saveDb() {
     flushDirtyToSupabase();
 }
 
+let saveDbTimer = null;
+function scheduleSaveDb(delayMs) {
+    if (saveDbTimer) return;
+    saveDbTimer = setTimeout(() => {
+        saveDbTimer = null;
+        saveDb();
+    }, delayMs || 1500);
+    if (saveDbTimer.unref) saveDbTimer.unref();
+}
+
 let nextNumericUid = 10001;
 function getOrAssignUid(accountKey, dataObj) {
     if (dataObj && dataObj.uid && Number(dataObj.uid) > 0) {
@@ -189,6 +199,7 @@ module.exports = {
     markDirty,
     flushDirtyToSupabase,
     saveDb,
+    scheduleSaveDb,
     getOrAssignUid,
     findPlayerByIdOrUid
 };

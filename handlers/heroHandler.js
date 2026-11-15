@@ -54,6 +54,7 @@ const HeroHandler = {
             this.data.last_skill_time = nowSec;
         }
         this.data.skill_point = Math.max(0, cur - (amount || 1));
+        this.data.skill_points = this.data.skill_point;
         return this.data.skill_point;
     },
 
@@ -400,6 +401,8 @@ const HeroHandler = {
             cri: finalCri,
             mp_cri: finalMpCri,
             power: totalPower,
+            equipped_skin: (this.data.hero_skins && this.data.hero_skins[hid]) || h.skin || "default",
+            skin_speed_bonus: (((this.data.hero_skins && this.data.hero_skins[hid]) || h.skin) === "rin_christmas") ? 1.5 : 0,
             equip_1: Number(h.equip_1 || 0),
             equip_2: Number(h.equip_2 || 0),
             equip_3: Number(h.equip_3 || 0),
@@ -1563,6 +1566,83 @@ const HeroHandler = {
                 outItems.push({ type: 13, item_id: targetToolId, amount: 1 });
             }
             respond({ items: outItems });
+            return true;
+        }
+
+        // Swap 6 tactic scroll slots between two heroes (from SECRET_SWAP_UI_V1)
+        if (cmd === "SwapHeroSecrets") {
+            var heroA = Number((params && params[0]) || 0);
+            var heroB = Number((params && params[1]) || 0);
+            var reqId = String((params && params[2]) || "");
+            if (heroA > 0 && heroB > 0 && heroA !== heroB && this.data.secrets) {
+                for (var si = 0; si < this.data.secrets.length; si++) {
+                    var sObj = this.data.secrets[si];
+                    var sPos = Number(sObj.pos || 0);
+                    if (sPos >= 1 && sPos <= 6 && Number(sObj.status) === 1) {
+                        if (Number(sObj.hero_id) === heroA) {
+                            sObj.hero_id = heroB;
+                            queuePush(SVRCMD.Secret, { secret: sObj });
+                        } else if (Number(sObj.hero_id) === heroB) {
+                            sObj.hero_id = heroA;
+                            queuePush(SVRCMD.Secret, { secret: sObj });
+                        }
+                    }
+                }
+                if (this.data.heros && this.data.heros[heroA]) {
+                    queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroA) });
+                }
+                if (this.data.heros && this.data.heros[heroB]) {
+                    queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroB) });
+                }
+                this.save();
+            }
+            respond({ swap_id: reqId, from: heroA, to: heroB, status: 1 });
+            return true;
+        }
+
+        // Hero Skin Info & Equip (for EQUIP_SKIN_BUTTON_V1 & Rin Noel Skin)
+        if (cmd === "HeroSkinInfo" || cmd === "SetHeroSkin") {
+            var skinHeroId = Number((params && params[0]) || 0);
+            if (!Array.isArray(this.data.unlocked_skins)) this.data.unlocked_skins = [];
+            if (!this.data.hero_skins || typeof this.data.hero_skins !== "object") this.data.hero_skins = {};
+
+            var isRinHero = false;
+            var hObj = (this.data.heros && this.data.heros[skinHeroId]) || null;
+            var hCfg = (typeof Config !== "undefined" && Config.hero && Config.hero[skinHeroId]) || null;
+            var hIcon = Number((hCfg && hCfg.icon) || skinHeroId);
+            if (skinHeroId === 10650 || skinHeroId === 10651 || hIcon === 10650 || hIcon === 10651) {
+                isRinHero = true;
+            }
+
+            var available = ["default"];
+            if (isRinHero && this.data.unlocked_skins.indexOf("rin_christmas") >= 0) {
+                available.push("rin_christmas");
+            }
+
+            if (cmd === "SetHeroSkin") {
+                var requestedSkin = String((params && params[1]) || "default");
+                if (available.indexOf(requestedSkin) < 0) {
+                    requestedSkin = "default";
+                }
+                this.data.hero_skins[skinHeroId] = requestedSkin;
+                if (hObj) {
+                    hObj.skin = requestedSkin;
+                    queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(skinHeroId) });
+                }
+                this.save();
+            }
+
+            var activeSkin = this.data.hero_skins[skinHeroId] || (hObj && hObj.skin) || "default";
+            if (available.indexOf(activeSkin) < 0) activeSkin = "default";
+            var bonus = (isRinHero && activeSkin === "rin_christmas") ? 1.5 : 0;
+            respond({
+                hero_id: skinHeroId,
+                skin: activeSkin,
+                equipped_skin: activeSkin,
+                available: available,
+                skin_speed_bonus: bonus,
+                speed_bonus: bonus
+            });
             return true;
         }
 

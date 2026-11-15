@@ -361,10 +361,18 @@ const ShopAndBoxHandler = {
             } else if (goods2Id === 9101) {
                 // Buy Skill Points
                 var spAdd = rewardVal > 0 ? rewardVal : 20;
-                var curSp = Number(this.data.skill_point !== undefined && this.data.skill_point !== null ? this.data.skill_point : 10);
-                this.data.skill_point = curSp + spAdd;
+                var sInfo = (typeof this.getSkillPointInfo === "function") ? this.getSkillPointInfo() : {
+                    leftCount: Number(this.data.skill_point !== undefined && this.data.skill_point !== null ? this.data.skill_point : 10),
+                    lastTime: Math.floor(Date.now() / 1000)
+                };
+                this.data.skill_point = Number(sInfo.leftCount || 0) + spAdd;
                 this.data.skill_points = this.data.skill_point;
                 this.data.last_skill_time = Math.floor(Date.now() / 1000);
+                queuePush(SVRCMD.SkillUpgradeInfo, {
+                    leftCount: this.data.skill_point,
+                    point: this.data.skill_point,
+                    lastTime: this.data.last_skill_time
+                });
             } else if (goods2Id === 3001) {
                 // Buy Arena fight attempts (ID_PK_BUY)
                 this.data.arena_fight_count = 0;

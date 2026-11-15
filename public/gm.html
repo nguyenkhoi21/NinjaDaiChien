@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ninja Đại Chiến — GM Panel & Theme</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --card: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --muted: #8b949e;
+            --accent: #2f81f7;
+            --green: #238636;
+            --gold: #d29922;
+            --red: #da3633;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 16px;
+        }
+        h1, h2, h3 { margin: 0 0 10px 0; }
+        .topbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin-bottom: 16px;
+        }
+        .theme-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .btn.green { background: var(--green); }
+        .btn.gold { background: var(--gold); color: #111; }
+        .btn.red { background: var(--red); }
+        .btn.ghost { background: #21262d; border: 1px solid var(--border); color: var(--text); }
+        .btn.active { outline: 2px solid #58a6ff; }
+        .layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+        }
+        input, select {
+            background: #0d1117;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 13px;
+        }
+        .acc-list {
+            max-height: 620px;
+            overflow-y: auto;
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .acc-item {
+            padding: 9px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            background: #0d1117;
+            transition: border-color .15s;
+        }
+        .acc-item:hover, .acc-item.selected { border-color: var(--accent); background: #131c2b; }
+        .badge {
+            display: inline-block;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 99px;
+            font-weight: 600;
+        }
+        .badge.on { background: rgba(35, 134, 54, .25); color: #3fb950; }
+        .badge.off { background: rgba(139, 148, 158, .2); color: var(--muted); }
+        .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .stat-box {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .stat-label { font-size: 12px; color: var(--muted); }
+        .stat-val { font-size: 17px; font-weight: 700; margin: 4px 0 8px 0; color: #f0f6fc; }
+        .catalog-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 10px;
+            max-height: 500px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .cat-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+        }
+        .cat-icon {
+            width: 48px;
+            height: 48px;
+            flex: 0 0 48px;
+            border-radius: 6px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .cat-info { flex: 1; min-width: 0; }
+        .cat-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cat-id { font-size: 11px; color: var(--muted); }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #238636;
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            box-shadow: 0 6px 20px rgba(0,0,0,.45);
+            display: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div>
+            <h1>🍃 Ninja Đại Chiến — GM Panel</h1>
+            <div style="font-size:13px;color:var(--muted)">Quản lý Theme Server, Tài khoản, Buff Tiền tệ, Item (tên Tiếng Việt + ảnh), Tướng, Khung & Skin</div>
+        </div>
+        <div class="theme-box">
+            <span style="font-size:13px;color:var(--muted)">Theme Server:</span>
+            <button id="btn-theme-noel" class="btn ghost" onclick="setTheme('noel')">❄️ Giáng Sinh (Noel)</button>
+            <button id="btn-theme-default" class="btn ghost" onclick="setTheme('default')">🌿 Mặc định</button>
+            <a href="/logs" target="_blank" class="btn ghost" style="text-decoration:none">📡 Packet Logs</a>
+        </div>
+    </div>
+
+    <div class="layout">
+        <div class="card">
+            <h3>👤 Danh sách Tài khoản</h3>
+            <input id="acc-search" type="text" placeholder="Tìm username, tên nhân vật, UID..." style="width:100%" oninput="renderAccounts()" />
+            <div id="acc-list" class="acc-list">Đang tải...</div>
+        </div>
+
+        <div class="card" id="detail-panel">
+            <div style="color:var(--muted);padding:30px;text-align:center">← Chọn một tài khoản bên trái để thao tác GM</div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        let state = { theme: 'noel', players: [] };
+        let catalog = { items: [], heroes: [], frames: [], skins: [] };
+        let spriteFrames = {};
+        let spriteImages = {};
+        let selectedPlayerId = null;
+        let selectedPlayer = null;
+        let activeTab = 'currency';
+
+        function toast(msg, isErr) {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.style.background = isErr ? '#da3633' : '#238636';
+            el.style.display = 'block';
+            clearTimeout(el._t);
+            el._t = setTimeout(() => { el.style.display = 'none'; }, 2800);
+        }
+
+        function loadSpriteImage(name) {
+            if (spriteImages[name]) return Promise.resolve(spriteImages[name]);
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => { spriteImages[name] = img; resolve(img); };
+                img.onerror = () => resolve(null);
+                img.src = '/gm-sprites/' + name;
+            });
+        }
+
+        function drawFrameToCanvas(canvas, frameKey) {
+            const f = spriteFrames[frameKey];
+            if (!f) return;
+            loadSpriteImage(f.s).then(img => {
+                if (!img) return;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (f.r) {
+                    // Cocos2d rotated=true means stored w/h are swapped in atlas (height x width), rotated 90deg CW
+                    ctx.save();
+                    ctx.translate(canvas.width / 2, canvas.height / 2);
+                    ctx.rotate(-Math.PI / 2);
+                    ctx.drawImage(img, f.x, f.y, f.h, f.w, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, canvas.width, canvas.height);
+                }
+            });
+        }
+
+        async function init() {
+            const [stRes, catRes, spRes] = await Promise.all([
+                fetch('/api/gm/state').then(r => r.json()),
+                fetch('/api/gm/catalog').then(r => r.json()),
+                fetch('/gm-sprites/sprite_frames.json').then(r => r.json()).catch(() => ({}))
+            ]);
+            state = stRes;
+            catalog = catRes;
+            spriteFrames = spRes;
+            updateThemeButtons();
+            renderAccounts();
+            if (state.players.length && !selectedPlayerId) {
+                selectPlayer(state.players[0].player_id);
+            }
+        }
+
+        function updateThemeButtons() {
+            document.getElementById('btn-theme-noel').className = 'btn ' + (state.theme === 'noel' ? 'active' : 'ghost');
+            document.getElementById('btn-theme-default').className = 'btn ' + (state.theme === 'default' ? 'active' : 'ghost');
+        }
+
+        async function setTheme(theme) {
+            const res = await fetch('/api/theme', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ theme })
+            }).then(r => r.json());
+            if (res.ok) {
+                state.theme = res.theme;
+                updateThemeButtons();
+                toast('Đã đổi Theme Server sang: ' + (res.theme === 'noel' ? 'Giáng Sinh (Noel)' : 'Mặc định'));
+            }
+        }
+
+        function renderAccounts() {
+            const q = (document.getElementById('acc-search').value || '').trim().toLowerCase();
+            const list = document.getElementById('acc-list');
+            const filtered = state.players.filter(p =>
+                !q ||
+                p.player_id.toLowerCase().includes(q) ||
+                p.team_name.toLowerCase().includes(q) ||
+                String(p.uid).includes(q)
+            );
+            list.innerHTML = filtered.map(p => `
+                <div class="acc-item ${selectedPlayerId === p.player_id ? 'selected' : ''}" onclick="selectPlayer('${p.player_id.replace(/'/g, "\\'")}')">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <strong>${p.team_name}</strong>
+                        <span class="badge ${p.online ? 'on' : 'off'}">${p.online ? 'ONLINE' : 'OFF'}</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:3px">
+                        ID: ${p.player_id} · UID: ${p.uid} · Lv.${p.lv} · VIP ${p.vip}
+                    </div>
+                </div>
+            `).join('') || '<div style="color:var(--muted);padding:10px">Không có tài khoản nào.</div>';
+        }
+
+        async function selectPlayer(pid) {
+            selectedPlayerId = pid;
+            renderAccounts();
+            const res = await fetch('/api/gm/player?id=' + encodeURIComponent(pid)).then(r => r.json());
+            if (res.ok) {
+                selectedPlayer = res.player;
+                renderDetail();
+            }
+        }
+
+        async function gmGive(payload) {
+            const res = await fetch('/api/gm/give', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.assign({ player_id: selectedPlayerId }, payload))
+            }).then(r => r.json());
+            if (res.ok) {
+                toast(res.msg + (res.onlinePushed ? ' (Đã đẩy live vào game!)' : ''));
+                await selectPlayer(selectedPlayerId);
+            } else {
+                toast(res.error || 'Lỗi', true);
+            }
+        }
+
+        function renderDetail() {
+            const p = selectedPlayer;
+            if (!p) return;
+            const panel = document.getElementById('detail-panel');
+            panel.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+                    <div>
+                        <h2 style="margin:0">${p.team_name} <span style="font-size:13px;color:var(--muted)">(ID: ${p.player_id} | UID: ${p.uid})</span></h2>
+                        <div style="font-size:13px;color:var(--muted)">Lv.${p.lv} · VIP ${p.vip} · Khung hiện tại: #${p.frame_id} · Tướng: ${p.hero_ids.length}</div>
+                    </div>
+                    <button class="btn ghost" onclick="selectPlayer('${p.player_id.replace(/'/g, "\\'")}')">🔄 Làm mới</button>
+                </div>
+
+                <div class="tabs">
+                    <button class="btn ${activeTab==='currency'?'':'ghost'}" onclick="activeTab='currency';renderDetail()">💰 Tiền tệ & Chỉ số</button>
+                    <button class="btn ${activeTab==='items'?'':'ghost'}" onclick="activeTab='items';renderDetail()">🎒 Thêm Item (Tên VN + Ảnh)</button>
+                    <button class="btn ${activeTab==='heroes'?'':'ghost'}" onclick="activeTab='heroes';renderDetail()">🥷 Thêm Tướng (Ninja)</button>
+                    <button class="btn ${activeTab==='cosmetics'?'':'ghost'}" onclick="activeTab='cosmetics';renderDetail()">❄️ Khung & Skin Noel</button>
+                </div>
+
+                <div id="tab-content"></div>
+            `;
+
+            if (activeTab === 'currency') renderCurrencyTab(p);
+            else if (activeTab === 'items') renderItemsTab();
+            else if (activeTab === 'heroes') renderHeroesTab(p);
+            else if (activeTab === 'cosmetics') renderCosmeticsTab(p);
+        }
+
+        function renderCurrencyTab(p) {
+            const fields = [
+                { key: 'stone', label: '💎 Kim Cương (Stone)', val: p.stone, quick: [10000, 100000, 1000000] },
+                { key: 'gold', label: '🪙 Vàng (Gold)', val: p.gold, quick: [1000000, 10000000, 100000000] },
+                { key: 'sp', label: '⚡ Thể Lực (SP)', val: p.sp, quick: [500, 5000] },
+                { key: 'vip_exp', label: '👑 VIP EXP', val: p.vip_exp, quick: [1000, 50000, 500000] },
+                { key: 'exp', label: '⭐ EXP Đội', val: p.exp, quick: [10000, 100000] },
+                { key: 'arena_point', label: '⚔️ Điểm Đấu Trường', val: p.arena_point, quick: [5000, 50000] },
+                { key: 'ninja_point', label: '🧭 Điểm Viễn Chinh', val: p.ninja_point, quick: [5000, 50000] },
+                { key: 'group_point', label: '🏯 Cống Hiến Bang', val: p.group_point, quick: [5000, 50000] },
+                { key: 'dark_arena_point', label: '🌑 Điểm Ám Bộ', val: p.dark_arena_point, quick: [5000, 50000] }
+            ];
+            document.getElementById('tab-content').innerHTML = `
+                <div class="stats-grid">
+                    ${fields.map(f => `
+                        <div class="stat-box">
+                            <div class="stat-label">${f.label}</div>
+                            <div class="stat-val">${Number(f.val).toLocaleString()}</div>
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
+                                ${f.quick.map(q => `<button class="btn green" style="padding:3px 7px;font-size:11px" onclick="gmGive({action:'currency',field:'${f.key}',mode:'add',amount:${q}})">+${q >= 1000000 ? (q/1000000)+'M' : (q>=1000?(q/1000)+'K':q)}</button>`).join('')}
+                            </div>
+                            <div style="display:flex;gap:4px">
+                                <input id="cur-${f.key}" type="number" placeholder="Số lượng" style="width:100%;padding:4px 6px;font-size:12px" />
+                                <button class="btn" style="padding:4px 8px;font-size:11px" onclick="gmGive({action:'currency',field:'${f.key}',mode:'add',amount:Number(document.getElementById('cur-${f.key}').value||0)})">+</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderItemsTab() {
+            document.getElementById('tab-content').innerHTML = `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <input id="item-search" type="text" placeholder="Tìm Item theo tên Tiếng Việt hoặc ID (vd: Sách, Rương, Đá, 10030)..." style="flex:1;min-width:240px" oninput="filterItems()" />
+                    <label style="font-size:13px;color:var(--muted)">Số lượng:</label>
+                    <input id="item-qty" type="number" value="10" min="1" style="width:90px" />
+                </div>
+                <div id="item-grid" class="catalog-grid"></div>
+            `;
+            filterItems();
+        }
+
+        function filterItems() {
+            const q = (document.getElementById('item-search').value || '').trim().toLowerCase();
+            const list = catalog.items.filter(it =>
+                !q || it.name.toLowerCase().includes(q) || String(it.id).includes(q)
+            ).slice(0, 80);
+
+            const grid = document.getElementById('item-grid');
+            grid.innerHTML = list.map(it => `
+                <div class="cat-card">
+                    <div class="cat-icon"><canvas width="44" height="44" data-frame="item_${it.icon_id}.jpg"></canvas></div>
+                    <div class="cat-info">
+                        <div class="cat-name" title="${it.name}">${it.name}</div>
+                        <div class="cat-id">ID: ${it.id}</div>
+                    </div>
+                    <button class="btn green" style="padding:5px 9px;font-size:12px" onclick="gmGive({action:'item',item_id:${it.id},amount:Number(document.getElementById('item-qty').value||1)})">+ Thêm</button>
+                </div>
+            `).join('');
+            grid.querySelectorAll('canvas[data-frame]').forEach(c => drawFrameToCanvas(c, c.getAttribute('data-frame')));
+        }
+
+        function renderHeroesTab(p) {
+            document.getElementById('tab-content').innerHTML = `
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input id="hero-search" type="text" placeholder="Tìm Ninja theo tên hoặc ID (vd: Rin, Sasuke, Naruto, 10650)..." style="flex:1" oninput="filterHeroes()" />
+                </div>
+                <div id="hero-grid" class="catalog-grid"></div>
+            `;
+            filterHeroes();
+        }
+
+        function filterHeroes() {
+            const q = (document.getElementById('hero-search').value || '').trim().toLowerCase();
+            const owned = new Set((selectedPlayer && selectedPlayer.hero_ids) || []);
+            const list = catalog.heroes.filter(h =>
+                !q || h.name.toLowerCase().includes(q) || String(h.id).includes(q)
+            ).slice(0, 80);
+
+            const grid = document.getElementById('hero-grid');
+            grid.innerHTML = list.map(h => {
+                const has = owned.has(h.id);
+                return `
+                    <div class="cat-card">
+                        <div class="cat-icon"><canvas width="44" height="44" data-frame="head_${h.icon}.jpg"></canvas></div>
+                        <div class="cat-info">
+                            <div class="cat-name" title="${h.name}">${h.name}</div>
+                            <div class="cat-id">ID: ${h.id} ${has ? '· <span style="color:#3fb950">Đã có</span>' : ''}</div>
+                        </div>
+                        <button class="btn ${has?'ghost':'green'}" style="padding:5px 9px;font-size:12px" onclick="gmGive({action:'hero',hero_id:${h.id}})">${has?'Cấp lại':'+ Thêm'}</button>
+                    </div>
+                `;
+            }).join('');
+            grid.querySelectorAll('canvas[data-frame]').forEach(c => drawFrameToCanvas(c, c.getAttribute('data-frame')));
+        }
+
+        function renderCosmeticsTab(p) {
+            const hasRinSkin = (p.unlocked_skins || []).includes('rin_christmas');
+            document.getElementById('tab-content').innerHTML = `
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+                    <div class="stat-box">
+                        <h3 style="margin-bottom:8px">❄️ Skin Nohara Rin — Giáng Sinh</h3>
+                        <p style="font-size:13px;color:var(--muted);margin:0 0 10px 0">
+                            Trạng thái: <strong style="color:${hasRinSkin?'#3fb950':'#f85149'}">${hasRinSkin ? 'ĐÃ MỞ KHÓA' : 'CHƯA CÓ'}</strong>
+                        </p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <button class="btn green" onclick="gmGive({action:'skin',skin_id:'rin_christmas',enable:true,equip:true})">🎁 Mở khóa & Trang bị cho Rin</button>
+                            <button class="btn red" onclick="gmGive({action:'skin',skin_id:'rin_christmas',enable:false})">Gỡ Skin</button>
+                        </div>
+                    </div>
+                    <div class="stat-box">
+                        <h3 style="margin-bottom:8px">🖼️ Khung Avatar (Tuyết Hoa 2.0 #812)</h3>
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                            <img src="/gm-sprites/ice_wing_frame.png" width="48" height="48" style="border-radius:6px;background:#161b22;border:1px solid #30363d" />
+                            <div style="font-size:13px">Khung hiện tại: <strong>#${p.frame_id}</strong></div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <button class="btn gold" onclick="gmGive({action:'frame',frame_id:812})">❄️ Đeo Khung Tuyết Hoa 2.0 (812)</button>
+                            <select id="frame-select" onchange="if(this.value!=='')gmGive({action:'frame',frame_id:Number(this.value)})">
+                                <option value="">-- Chọn khung khác --</option>
+                                ${catalog.frames.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        init();
+    </script>
+</body>
+</html>
