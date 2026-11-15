@@ -1232,12 +1232,6 @@ const HeroHandler = {
             }
             if (goldCost > 0) this.deductGold(goldCost, queuePush);
 
-            // Tiêu thụ bí kíp tạm ở slot 2..5 sau khi hoàn thành
-            if (slot >= 2 && slot <= 5) {
-                this.data.player_school["school_" + slot] = 0;
-                this.data.player_school["school_" + slot + "_expire_time"] = 0;
-            }
-
             // Mở khóa bí kíp step tiếp theo theo adv_id / adv_weight và đúng thời gian tồn tại:
             // Step đầu (slot 2): 10p (600s), Step 2 (slot 3): 5p (300s), Step 3 (slot 4): 2p (120s),
             // Step cuối (slot 5): cuốn Âm Dương (1518, 1520) = 30s, cuốn loại khác = 1p (60s)
@@ -1271,6 +1265,10 @@ const HeroHandler = {
                 }
                 this.data.player_school["school_" + nextSlot] = nextId;
                 this.data.player_school["school_" + nextSlot + "_expire_time"] = nowSec + expireSec;
+                for (var rs = nextSlot + 1; rs <= 5; rs++) {
+                    this.data.player_school["school_" + rs] = 0;
+                    this.data.player_school["school_" + rs + "_expire_time"] = 0;
+                }
             }
 
             var dropItemId = 50010;
