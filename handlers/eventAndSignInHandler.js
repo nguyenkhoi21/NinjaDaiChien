@@ -3,7 +3,283 @@
 // (SignIn, DailyTaskAward, ReceiveAchievement, TaskInfo/TaskSweep, Online Events, Roulette/Lucky, BattlePass, Raid, Giftcode)
 // ============================================================================
 
+const { syncConfigFromUpstream } = require("../config/configLoader");
+
 const EventAndSignInHandler = {
+    getPlayableHeroSoulEntries: function() {
+        var bySoulId = {};
+        if (typeof Config !== "undefined") {
+            if (Config.item) {
+                for (var sid in Config.item) {
+                    var it = Config.item[sid];
+                    if (!it || Number(it.item_type) !== 2) continue;
+                    var soulNum = Number(sid);
+                    var mergeNum = Number(it.merge_id || 0);
+                    if (soulNum <= 0) continue;
+                    if (!bySoulId[soulNum]) {
+                        bySoulId[soulNum] = {
+                            soulId: soulNum,
+                            heroId: mergeNum,
+                            name: (Config.hero && Config.hero[mergeNum] && Config.hero[mergeNum].name) || it.name || ("Hero " + mergeNum)
+                        };
+                    }
+                }
+            }
+            if (Config.hero) {
+                for (var hid in Config.hero) {
+                    var hCfg = Config.hero[hid];
+                    var hidNum = Number(hid);
+                    if (!hCfg || Number(hCfg.sum_soul || 0) <= 0 || hidNum < 10000 || hidNum >= 15000) continue;
+                    var mappedSoulId = typeof this.findSoulItemId === "function"
+                        ? this.findSoulItemId(hidNum)
+                        : (20000 + (hidNum - 10000));
+                    if (mappedSoulId > 0 && !bySoulId[mappedSoulId]) {
+                        bySoulId[mappedSoulId] = {
+                            soulId: mappedSoulId,
+                            heroId: hidNum,
+                            name: hCfg.name || ("Hero " + hidNum)
+                        };
+                    }
+                }
+            }
+        }
+        var list = Object.keys(bySoulId).map(function(k) { return bySoulId[k]; });
+        list.sort(function(a, b) { return b.soulId - a.soulId; });
+        return list;
+    },
+
+    getLatestPlayableHeroSoulIds: function() {
+        return this.getPlayableHeroSoulEntries().map(function(e) { return e.soulId; });
+    },
+
+    syncOnlineLuckyWithLatestHero: function() {
+        var soulEntries = this.getPlayableHeroSoulEntries();
+        if (soulEntries.length === 0) return soulEntries;
+
+        var latestEntry = soulEntries[0];
+        var latestSoulId = latestEntry.soulId;
+
+        if (this.onlineLucky && this.onlineLucky.items && Array.isArray(this.onlineLucky.items["11011209"])) {
+            var diamondSlots = this.onlineLucky.items["11011209"];
+            var mainSeqs = [2, 4, 7];
+            for (var i = 0; i < diamondSlots.length; i++) {
+                var slot = diamondSlots[i];
+                if (mainSeqs.indexOf(Number(slot.seq)) !== -1) {
+                    slot.item_type = 1;
+                    slot.item_id = latestSoulId;
+                    slot.item_amount = 10;
+                    slot.weight = 300;
+                    slot.need_latern = 1;
+                }
+            }
+        }
+
+        if (Array.isArray(this.onlineEvents)) {
+            var exchangeGroup = null;
+            for (var gi = 0; gi < this.onlineEvents.length; gi++) {
+                var grp = this.onlineEvents[gi];
+                if (Array.isArray(grp) && grp.length > 0 && Number(grp[0].types) === 15) {
+                    exchangeGroup = grp;
+                    break;
+                }
+            }
+            if (exchangeGroup) {
+                var hasLatestExchange = false;
+                var rewardPattern10 = "1," + latestSoulId + ",10";
+                var rewardPattern50 = "1," + latestSoulId + ",50";
+                for (var ei = 0; ei < exchangeGroup.length; ei++) {
+                    var ev = exchangeGroup[ei];
+                    if (ev && (ev.items === rewardPattern10 || ev.items === rewardPattern50)) {
+                        hasLatestExchange = true;
+                        break;
+                    }
+                }
+                if (!hasLatestExchange) {
+                    var baseId = 15900000 + latestSoulId * 10;
+                    var cleanHeroName = String(latestEntry.name || ("Hero " + latestEntry.heroId)).replace(/\s*\(Souls\)\s*$/i, "").replace(/^Hồn\s+/i, "");
+                    exchangeGroup.unshift(
+                        {
+                            id: baseId + 1,
+                            title: "",
+                            content: "10 Golden Key -> 10 " + cleanHeroName + " (Souls)",
+                            types: 15,
+                            kind: 190,
+                            conditions: "99999;0;1,10430,10",
+                            platforms: "",
+                            daily: 1,
+                            enable: 1,
+                            from_time: 1704038401,
+                            to_time: 1924963199,
+                            items: rewardPattern10,
+                            create_time: 0,
+                            sort: 190,
+                            date_type: 1,
+                            is_global: 0
+                        },
+                        {
+                            id: baseId + 2,
+                            title: "",
+                            content: "50 Golden Key -> 50 " + cleanHeroName + " (Souls)",
+                            types: 15,
+                            kind: 190,
+                            conditions: "99999;0;1,10430,50",
+                            platforms: "",
+                            daily: 1,
+                            enable: 1,
+                            from_time: 1704038401,
+                            to_time: 1924963199,
+                            items: rewardPattern50,
+                            create_time: 0,
+                            sort: 190,
+                            date_type: 1,
+                            is_global: 0
+                        }
+                    );
+                }
+            }
+        }
+        return soulEntries;
+    },
+
+    grantAllHeroSouls: function(soulAmt, specificId, rewardItems, queuePush) {
+        var entries = this.getPlayableHeroSoulEntries();
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i];
+            if (specificId > 0 && entry.soulId !== specificId && entry.heroId !== specificId) {
+                continue;
+            }
+            this.changeItemAmount(entry.soulId, soulAmt, queuePush);
+            if (rewardItems.length < 18) {
+                rewardItems.push({ type: 1, item_id: entry.soulId, amount: soulAmt });
+            }
+        }
+    },
+
+    grantAllSecrets: function(giveExpCnt, rewardItems, queuePush) {
+        var expTacticIds = [30104, 30105, 30106, 30107];
+        for (var eti = 0; eti < expTacticIds.length; eti++) {
+            var expId = expTacticIds[eti];
+            this.addSecretEquip(expId, giveExpCnt, queuePush);
+            if (rewardItems.length < 18) {
+                rewardItems.push({ type: 2, item_id: expId, amount: giveExpCnt });
+            }
+        }
+        if (typeof Config !== "undefined" && Config.equip) {
+            var existingTactics = {};
+            if (this.data.secrets) {
+                for (var tsi = 0; tsi < this.data.secrets.length; tsi++) {
+                    var teqKey = Number(this.data.secrets[tsi].equip_id);
+                    existingTactics[teqKey] = (existingTactics[teqKey] || 0) + 1;
+                }
+            }
+            for (var bkId in Config.equip) {
+                var bkCfg = Config.equip[bkId];
+                var bkNum = Number(bkId);
+                if (Number(bkCfg.type) === 2 && expTacticIds.indexOf(bkNum) === -1) {
+                    var curBk = existingTactics[bkNum] || 0;
+                    var targetBk = 3;
+                    if (curBk < targetBk) {
+                        this.addSecretEquip(bkNum, targetBk - curBk, queuePush);
+                    }
+                    if (rewardItems.length < 18) {
+                        rewardItems.push({ type: 2, item_id: bkNum, amount: targetBk });
+                    }
+                }
+            }
+        }
+    },
+
+    grantAllGems: function(gemGiveCnt, rewardItems, queuePush) {
+        if (typeof Config !== "undefined" && Config.equip) {
+            for (var gid in Config.equip) {
+                var gCfg = Config.equip[gid];
+                var gNum = Number(gid);
+                if (Number(gCfg.type) === 3) {
+                    this.changeEquipAmount(gNum, gemGiveCnt, queuePush);
+                    if (rewardItems.length < 18 && (gNum % 10 === 0 || gNum % 10 === 5 || gNum % 10 === 1)) {
+                        rewardItems.push({ type: 2, item_id: gNum, amount: gemGiveCnt });
+                    }
+                }
+            }
+        }
+        this.syncGemsAndSecrets(queuePush);
+    },
+
+    grantAllAvatars: function(rewardItems, queuePush) {
+        var grantedSet = {};
+        if (typeof Config !== "undefined") {
+            if (Config.item) {
+                var avIds = Object.keys(Config.item).map(Number).filter(function(iid) {
+                    return Config.item[iid] && Number(Config.item[iid].item_type) === 11;
+                }).sort(function(a, b) { return b - a; });
+                for (var ai = 0; ai < avIds.length; ai++) {
+                    var avId = avIds[ai];
+                    grantedSet[avId] = true;
+                    if (this.getItemAmount(avId) < 1) {
+                        this.changeItemAmount(avId, 1, queuePush);
+                    }
+                    if (rewardItems.length < 18) {
+                        rewardItems.push({ type: 1, item_id: avId, amount: 1 });
+                    }
+                }
+            }
+            if (Config.player_head) {
+                for (var hk in Config.player_head) {
+                    var ph = Config.player_head[hk];
+                    var phItemId = Number((ph && (ph.item_id || ph.itme_id)) || 0);
+                    if (phItemId > 0 && !grantedSet[phItemId] && Config.item && Config.item[phItemId]) {
+                        grantedSet[phItemId] = true;
+                        if (this.getItemAmount(phItemId) < 1) {
+                            this.changeItemAmount(phItemId, 1, queuePush);
+                        }
+                        if (rewardItems.length < 18) {
+                            rewardItems.push({ type: 1, item_id: phItemId, amount: 1 });
+                        }
+                    }
+                }
+            }
+        }
+    },
+
+    grantAllItemsAndEquips: function(rewardItems, queuePush) {
+        if (typeof Config !== "undefined" && Config.item) {
+            for (var iid in Config.item) {
+                var it = Config.item[iid];
+                var itType = Number(it.item_type || 0);
+                if (itType !== 2) {
+                    if (itType === 11) {
+                        if (this.getItemAmount(Number(iid)) < 1) {
+                            this.changeItemAmount(Number(iid), 1, queuePush);
+                        }
+                    } else {
+                        var giveAmt = (itType === 12) ? 500 : ((itType === 3) ? 999 : 5000);
+                        this.changeItemAmount(Number(iid), giveAmt, queuePush);
+                        if (rewardItems.length < 12) {
+                            rewardItems.push({ type: 1, item_id: Number(iid), amount: giveAmt });
+                        }
+                    }
+                }
+            }
+        }
+        if (typeof Config !== "undefined" && Config.equip) {
+            for (var eid in Config.equip) {
+                var eq = Config.equip[eid];
+                var eqType = Number(eq.type || eq.types || 1);
+                if (eqType === 1) {
+                    this.changeEquipAmount(Number(eid), 99, queuePush);
+                    if (rewardItems.length < 18) {
+                        rewardItems.push({ type: 2, item_id: Number(eid), amount: 99 });
+                    }
+                }
+            }
+        }
+        if (typeof Config !== "undefined" && Config.ninja_tool) {
+            for (var ntid in Config.ninja_tool) {
+                this.changeNinjaToolAmount(Number(ntid), 10, queuePush);
+            }
+        }
+    },
+
     handleEventAndSignInCommand: function(cmd, params, respond, queuePush) {
         var self = this;
 
@@ -121,6 +397,7 @@ const EventAndSignInHandler = {
 
         // 4. Sự kiện Online (GetAllEvents, GetAllEventsProcess, ReceivedEventAward)
         if (cmd === SVRCMD.GetAllEvents) {
+            this.syncOnlineLuckyWithLatestHero();
             var nowSec = Math.floor(Date.now() / 1000);
             var minFrom = nowSec - 86400 * 7;
             var minTo = nowSec + 86400 * 180;
@@ -326,6 +603,7 @@ const EventAndSignInHandler = {
 
         // 5. Vòng Quay May Mắn (LuckyInfo, PlayerLuckyInfo, LuckyLogs, Lucky)
         if (cmd === SVRCMD.LuckyInfo) {
+            this.syncOnlineLuckyWithLatestHero();
             var nowSec = Math.floor(Date.now() / 1000);
             var minTo = nowSec + 86400 * 180;
             if (this.onlineLucky && this.onlineLucky.luckys) {
@@ -356,6 +634,7 @@ const EventAndSignInHandler = {
         }
 
         if (cmd === SVRCMD.Lucky) {
+            this.syncOnlineLuckyWithLatestHero();
             var luckyId = Number((params && params[0]) || 11011208);
             var tabIdx = Number((params && params[1]) || 1);
             var count = Number((params && params[2]) || 1);
@@ -634,127 +913,60 @@ const EventAndSignInHandler = {
                 return true;
             }
 
-            // 3. GMSoul / GMHero / GMNinja: Cộng Soul (Hồn Ninja) vào túi đồ
+            // 3. GMSoul / GMHero / GMNinja: Cộng Soul (Hồn Ninja) vào túi đồ (tự động từ Config mới nhất)
             if (gmCmd === "HERO" || gmCmd === "SOUL" || gmCmd === "SOULS" || gmCmd === "TUONG" || gmCmd === "NINJA") {
-                var soulAmt = val > 0 ? val : 2000;
-                var specificId = 0;
-                if (val >= 10000 && val <= 30000) {
-                    specificId = val;
-                    soulAmt = val2 > 0 ? val2 : 2000;
-                }
-                if (typeof Config !== "undefined" && Config.item) {
-                    for (var sid in Config.item) {
-                        var sCfg = Config.item[sid];
-                        if (Number(sCfg.item_type) === 2) {
-                            if (specificId > 0 && Number(sid) !== specificId && Number(sCfg.merge_id) !== specificId) {
-                                continue;
-                            }
-                            this.changeItemAmount(Number(sid), soulAmt, queuePush);
-                            if (rewardItems.length < 18) {
-                                rewardItems.push({ type: 1, item_id: Number(sid), amount: soulAmt });
-                            }
+                var soulEntries = this.getPlayableHeroSoulEntries();
+                var isKnownSoulOrHero = false;
+                if (val > 0) {
+                    for (var sei = 0; sei < soulEntries.length; sei++) {
+                        if (soulEntries[sei].soulId === val || soulEntries[sei].heroId === val) {
+                            isKnownSoulOrHero = true;
+                            break;
                         }
                     }
                 }
+                var specificId = isKnownSoulOrHero ? val : 0;
+                var soulAmt = isKnownSoulOrHero ? (val2 > 0 ? val2 : 2000) : (val > 0 ? val : 2000);
+                this.grantAllHeroSouls(soulAmt, specificId, rewardItems, queuePush);
                 respond({ items: rewardItems });
                 return true;
             }
 
-            // 4. GMBiKip / GMSecret: Cộng Bí Kíp + EXP Bí Kíp (type 2 trong Config.equip: 30101..30613)
+            // 4. GMBiKip / GMSecret: Cộng Bí Kíp + EXP Bí Kíp (type 2 trong Config.equip)
             if (gmCmd === "BIKIP" || gmCmd === "SECRET" || gmCmd === "SECRETS" || gmCmd === "EXPSECRET" || gmCmd === "BIKIPEXP") {
-                var expTacticIds = [30104, 30105, 30106, 30107];
                 var giveExpCnt = val > 0 ? val : 50;
-                for (var eti = 0; eti < expTacticIds.length; eti++) {
-                    var expId = expTacticIds[eti];
-                    this.addSecretEquip(expId, giveExpCnt, queuePush);
-                    rewardItems.push({ type: 2, item_id: expId, amount: giveExpCnt });
-                }
-                if (typeof Config !== "undefined" && Config.equip) {
-                    var existingTactics = {};
-                    if (this.data.secrets) {
-                        for (var tsi = 0; tsi < this.data.secrets.length; tsi++) {
-                            var teqKey = Number(this.data.secrets[tsi].equip_id);
-                            existingTactics[teqKey] = (existingTactics[teqKey] || 0) + 1;
-                        }
-                    }
-                    for (var bkId in Config.equip) {
-                        var bkCfg = Config.equip[bkId];
-                        var bkNum = Number(bkId);
-                        if (Number(bkCfg.type) === 2 && expTacticIds.indexOf(bkNum) === -1) {
-                            var curBk = existingTactics[bkNum] || 0;
-                            var targetBk = 3;
-                            if (curBk < targetBk) {
-                                this.addSecretEquip(bkNum, targetBk - curBk, queuePush);
-                            }
-                            if (rewardItems.length < 18) {
-                                rewardItems.push({ type: 2, item_id: bkNum, amount: targetBk });
-                            }
-                        }
-                    }
-                }
+                this.grantAllSecrets(giveExpCnt, rewardItems, queuePush);
                 respond({ items: rewardItems });
                 return true;
             }
 
-            // 5. GMGem / GMNgoc / GMDa: Cộng Đá khảm / Ngọc (type 3 trong Config.equip: 40101..40610)
+            // 5. GMGem / GMNgoc / GMDa: Cộng Đá khảm / Ngọc (type 3 trong Config.equip)
             if (gmCmd === "GEM" || gmCmd === "GEMS" || gmCmd === "DA" || gmCmd === "NGOC" || gmCmd === "DAKHAM") {
                 var gemGiveCnt = (val > 0 && val <= 50) ? val : 6;
-                if (typeof Config !== "undefined" && Config.equip) {
-                    for (var gid in Config.equip) {
-                        var gCfg = Config.equip[gid];
-                        var gNum = Number(gid);
-                        if (Number(gCfg.type) === 3) {
-                            this.changeEquipAmount(gNum, gemGiveCnt, queuePush);
-                            if (rewardItems.length < 18 && (gNum % 10 === 0 || gNum % 10 === 5 || gNum % 10 === 1)) {
-                                rewardItems.push({ type: 2, item_id: gNum, amount: gemGiveCnt });
-                            }
-                        }
-                    }
-                }
-                this.syncGemsAndSecrets(queuePush);
+                this.grantAllGems(gemGiveCnt, rewardItems, queuePush);
                 respond({ items: rewardItems });
                 return true;
             }
 
             // 6. GMItem / GMPack / GMDo: Cộng toàn bộ Item, Trang bị, Nhẫn cụ vào túi đồ
             if (gmCmd === "ITEM" || gmCmd === "ITEMS" || gmCmd === "PACK" || gmCmd === "DO" || gmCmd === "RUONG" || gmCmd === "BAG" || gmCmd === "MANUAL") {
-                if (val >= 10000 && Config && Config.item && Config.item[val]) {
-                    var singleAmt = val2 > 0 ? val2 : 1000;
-                    this.changeItemAmount(val, singleAmt, queuePush);
-                    rewardItems.push({ type: 1, item_id: val, amount: singleAmt });
-                    respond({ items: rewardItems });
-                    return true;
-                }
-                if (typeof Config !== "undefined" && Config.item) {
-                    for (var iid in Config.item) {
-                        var it = Config.item[iid];
-                        var itType = Number(it.item_type || 0);
-                        if (itType !== 2) {
-                            var giveAmt = (itType === 12) ? 500 : ((itType === 3) ? 999 : 5000);
-                            this.changeItemAmount(Number(iid), giveAmt, queuePush);
-                            if (rewardItems.length < 12) {
-                                rewardItems.push({ type: 1, item_id: Number(iid), amount: giveAmt });
-                            }
-                        }
+                if (val >= 10000 && typeof Config !== "undefined") {
+                    if (Config.item && Config.item[val]) {
+                        var singleAmt = val2 > 0 ? val2 : 1000;
+                        this.changeItemAmount(val, singleAmt, queuePush);
+                        rewardItems.push({ type: 1, item_id: val, amount: singleAmt });
+                        respond({ items: rewardItems });
+                        return true;
+                    }
+                    if (Config.equip && Config.equip[val]) {
+                        var singleEqAmt = val2 > 0 ? val2 : 99;
+                        this.changeEquipAmount(val, singleEqAmt, queuePush);
+                        rewardItems.push({ type: 2, item_id: val, amount: singleEqAmt });
+                        respond({ items: rewardItems });
+                        return true;
                     }
                 }
-                if (typeof Config !== "undefined" && Config.equip) {
-                    for (var eid in Config.equip) {
-                        var eq = Config.equip[eid];
-                        var eqType = Number(eq.type || eq.types || 1);
-                        if (eqType === 1) {
-                            this.changeEquipAmount(Number(eid), 99, queuePush);
-                            if (rewardItems.length < 18) {
-                                rewardItems.push({ type: 2, item_id: Number(eid), amount: 99 });
-                            }
-                        }
-                    }
-                }
-                if (typeof Config !== "undefined" && Config.ninja_tool) {
-                    for (var ntid in Config.ninja_tool) {
-                        this.changeNinjaToolAmount(Number(ntid), 10, queuePush);
-                    }
-                }
+                this.grantAllItemsAndEquips(rewardItems, queuePush);
                 respond({ items: rewardItems });
                 return true;
             }
@@ -778,19 +990,33 @@ const EventAndSignInHandler = {
                 return true;
             }
 
+            var applyVipState = function(targetVip) {
+                targetVip = Math.min(20, Math.max(0, targetVip));
+                self.data.vip_lv = targetVip;
+                if (typeof Config !== "undefined" && Config.vipLevel && Config.vipLevel[targetVip]) {
+                    self.data.vip_exp = Number(Config.vipLevel[targetVip].upg_vip_exp || 0);
+                }
+                self.data.had_recharge_gift = 1;
+                self.data.had_vip5_gift = 1;
+                self.data.had_vip9_gift = 1;
+                self.data.had_vip11_gift = 1;
+                self.data.had_vip13_gift = 1;
+            };
+
+            var applyAllCardsState = function() {
+                var nowSecCard = Math.floor(Date.now() / 1000);
+                if (!self.data.card_expire_times) self.data.card_expire_times = {};
+                self.data.card_expire_times.PLAYER_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
+                self.data.card_expire_times.MONTH_CARD_FOREVER = 1;
+                self.data.card_expire_times.PLAYER_GOLD_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
+                self.data.card_expire_times.PLAYER_WHITE_GOLD_EXPIRE_TIME = nowSecCard + 86400 * 30;
+                self.data.card_expire_times.PLAYER_WEEK_CARD_EXPIRE_TIME = nowSecCard + 86400 * 7;
+                self.data.card_expire_times.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME = nowSecCard + 86400 * 7;
+            };
+
             // 9. GMVip: Nâng cấp VIP
             if (gmCmd === "VIP" || gmCmd === "SVIP") {
-                var targetVip = val > 0 ? val : 15;
-                targetVip = Math.min(20, Math.max(0, targetVip));
-                this.data.vip_lv = targetVip;
-                if (typeof Config !== "undefined" && Config.vipLevel && Config.vipLevel[targetVip]) {
-                    this.data.vip_exp = Number(Config.vipLevel[targetVip].upg_vip_exp || 0);
-                }
-                this.data.had_recharge_gift = 1;
-                this.data.had_vip5_gift = 1;
-                this.data.had_vip9_gift = 1;
-                this.data.had_vip11_gift = 1;
-                this.data.had_vip13_gift = 1;
+                applyVipState(val > 0 ? val : 15);
                 queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
                 rewardItems.push({ type: 4, item_id: 0, amount: 10000 });
                 respond({ items: rewardItems });
@@ -799,17 +1025,86 @@ const EventAndSignInHandler = {
 
             // 10. GMCard: Kích hoạt toàn bộ Thẻ Tháng / Thẻ Tuần / Thẻ Trọn Đời
             if (gmCmd === "CARD" || gmCmd === "THE" || gmCmd === "THETHANG") {
-                var nowSecCard = Math.floor(Date.now() / 1000);
-                if (!this.data.card_expire_times) this.data.card_expire_times = {};
-                this.data.card_expire_times.PLAYER_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
-                this.data.card_expire_times.MONTH_CARD_FOREVER = 1;
-                this.data.card_expire_times.PLAYER_GOLD_CARD_EXPIRE_TIME = nowSecCard + 86400 * 30;
-                this.data.card_expire_times.PLAYER_WHITE_GOLD_EXPIRE_TIME = nowSecCard + 86400 * 30;
-                this.data.card_expire_times.PLAYER_WEEK_CARD_EXPIRE_TIME = nowSecCard + 86400 * 7;
-                this.data.card_expire_times.PLAYER_PLATINUM_WEEK_CARD_EXPIRE_TIME = nowSecCard + 86400 * 7;
+                applyAllCardsState();
                 this.addStone(50000, queuePush);
                 rewardItems.push({ type: 4, item_id: 0, amount: 50000 });
                 respond({ items: rewardItems });
+                return true;
+            }
+
+            // 11. GMFullHero / UnlockHero / AllHero: Mở khóa toàn bộ Ninja mới nhất + tặng thêm Hồn
+            if (gmCmd === "FULLHERO" || gmCmd === "UNLOCKHERO" || gmCmd === "ALLHERO") {
+                var fullEntries = this.getPlayableHeroSoulEntries();
+                var extraSoulAmt = val > 0 ? val : 500;
+                for (var fi = 0; fi < fullEntries.length; fi++) {
+                    var fe = fullEntries[fi];
+                    if (fe.heroId > 0 && (!this.data.heros || !this.data.heros[fe.heroId])) {
+                        if (typeof this.addOrConvertHero === "function") {
+                            this.addOrConvertHero(fe.heroId, queuePush);
+                        }
+                    }
+                    if (fe.soulId > 0) {
+                        this.changeItemAmount(fe.soulId, extraSoulAmt, queuePush);
+                        if (rewardItems.length < 18) {
+                            rewardItems.push({ type: 1, item_id: fe.soulId, amount: extraSoulAmt });
+                        }
+                    }
+                }
+                respond({ items: rewardItems });
+                return true;
+            }
+
+            // 12. GMAvatar / GMHead / GMSkin: Mở khóa toàn bộ Khung & Avatar (bao gồm tướng mới)
+            if (gmCmd === "AVATAR" || gmCmd === "HEAD" || gmCmd === "SKIN" || gmCmd === "ICON") {
+                this.grantAllAvatars(rewardItems, queuePush);
+                respond({ items: rewardItems });
+                return true;
+            }
+
+            // 13. GMAll / GMFull: Full tài nguyên, VIP 15, Thẻ tháng, toàn bộ Hồn Tướng, Item, Bí Kíp, Ngọc, Avatar mới nhất
+            if (gmCmd === "ALL" || gmCmd === "FULL") {
+                this.grantAllHeroSouls(2000, 0, rewardItems, queuePush);
+                this.grantAllItemsAndEquips(rewardItems, queuePush);
+                this.grantAllSecrets(50, rewardItems, queuePush);
+                this.grantAllGems(6, rewardItems, queuePush);
+                this.grantAllAvatars(rewardItems, queuePush);
+                this.addGold(100000000, queuePush);
+                this.addStone(1000000, queuePush);
+                this.addSp(5000, queuePush);
+                applyVipState(15);
+                applyAllCardsState();
+                queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+                respond({ items: rewardItems });
+                return true;
+            }
+
+            // 14. GMSync / GMUpdate / GMHotfix: Đồng bộ Config mới nhất từ bản chính & tặng 100 hồn 6 tướng mới nhất
+            if (gmCmd === "SYNC" || gmCmd === "UPDATE" || gmCmd === "HOTFIX") {
+                syncConfigFromUpstream({ force: true }, function(syncErr, syncRes) {
+                    if (syncErr) {
+                        console.error("[-] GMSync error:", syncErr.message);
+                    }
+                    self.syncOnlineLuckyWithLatestHero();
+                    var latestEntries = self.getPlayableHeroSoulEntries();
+                    var syncSoulAmt = val > 0 ? val : 100;
+                    var seenHeroes = {};
+                    var grantedCnt = 0;
+                    for (var si = 0; si < latestEntries.length && grantedCnt < 6; si++) {
+                        var se = latestEntries[si];
+                        if (!se || !se.soulId) continue;
+                        if (se.heroId > 0 && seenHeroes[se.heroId]) continue;
+                        if (se.heroId > 0) seenHeroes[se.heroId] = true;
+                        self.changeItemAmount(se.soulId, syncSoulAmt, queuePush);
+                        if (rewardItems.length < 18) {
+                            rewardItems.push({ type: 1, item_id: se.soulId, amount: syncSoulAmt });
+                        }
+                        grantedCnt++;
+                    }
+                    if (rewardItems.length === 0) {
+                        rewardItems.push({ type: 4, item_id: 0, amount: 1000 });
+                    }
+                    respond({ items: rewardItems });
+                });
                 return true;
             }
 

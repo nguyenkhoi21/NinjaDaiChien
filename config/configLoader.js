@@ -4,6 +4,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const zlib = require('zlib');
+const crypto = require('crypto');
 
 if (typeof global !== 'undefined') {
     global.SVRCMD = new Proxy({}, { get: (t, p) => p });
@@ -69,6 +72,16 @@ const Config = {
     skillEffect: {}
 };
 
+function resetConfigTables() {
+    for (const k of Object.keys(ConfigGlobalVar)) {
+        delete ConfigGlobalVar[k];
+    }
+    const arrayKeys = ['maleFirstname', 'femaleFirstname', 'sensitiveWord', 'lastname', 'lvReward'];
+    for (const k of Object.keys(Config)) {
+        Config[k] = arrayKeys.indexOf(k) >= 0 ? [] : {};
+    }
+}
+
 function loadConfigData() {
     const configPath = path.join(__dirname, 'ConfigData.json');
     if (!fs.existsSync(configPath)) {
@@ -78,6 +91,7 @@ function loadConfigData() {
     try {
         const raw = fs.readFileSync(configPath, 'utf-8');
         const data = JSON.parse(raw);
+        resetConfigTables();
 
         Config.maleFirstname = data.male_firstname || [];
         Config.femaleFirstname = data.female_firstname || [];
@@ -370,6 +384,137 @@ function loadConfigData() {
     }
 }
 
+const UPSTREAM_CONFIG_URL = process.env.UPSTREAM_CONFIG_URL || 'http://103.90.227.124:8080/static/hotfix/android/res/ConfigData.json';
+const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+let _ddsKeyTable = null;
+let _lastUpstreamSyncAt = 0;
+let _syncInFlight = null;
+
+function getDdsKeyTable() {
+    if (_ddsKeyTable) return _ddsKeyTable;
+    const keyPath = path.join(__dirname, '..', 'battle_engine', 'dds_key.json');
+    if (fs.existsSync(keyPath)) {
+        _ddsKeyTable = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    }
+    return _ddsKeyTable;
+}
+
+function decryptDdsBuffer(buf) {
+    if (!Buffer.isBuffer(buf) || buf.length < 12 || buf.subarray(0, 3).toString('ascii') !== 'DDS') {
+        return buf;
+    }
+    const keyTable = getDdsKeyTable();
+    if (!Array.isArray(keyTable) || keyTable.length === 0) {
+        throw new Error('Missing dds_key.json for DDS decryption');
+    }
+    const flag = buf[3];
+    const numWords = Math.floor((buf.length - 8) / 4);
+    const decHeaderAndWords = Buffer.allocUnsafe(numWords * 4);
+    buf.copy(decHeaderAndWords, 0, 8, 8 + numWords * 4);
+
+    let keyIdx = 0;
+    const n1 = Math.min(numWords, 512);
+    for (let i = 0; i < n1; i++) {
+        const w = decHeaderAndWords.readUInt32LE(i * 4);
+        decHeaderAndWords.writeUInt32LE((w ^ keyTable[keyIdx]) >>> 0, i * 4);
+        keyIdx = (keyIdx + 1) % keyTable.length;
+    }
+    for (let i = 512; i < numWords; i += 64) {
+        const w = decHeaderAndWords.readUInt32LE(i * 4);
+        decHeaderAndWords.writeUInt32LE((w ^ keyTable[keyIdx]) >>> 0, i * 4);
+        keyIdx = (keyIdx + 1) % keyTable.length;
+    }
+
+    const tailStart = 8 + numWords * 4;
+    const payload = tailStart < buf.length
+        ? Buffer.concat([decHeaderAndWords.subarray(4), buf.subarray(tailStart)])
+        : decHeaderAndWords.subarray(4);
+    return flag === 1 ? zlib.inflateSync(payload) : payload;
+}
+
+function syncConfigFromUpstream(options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    }
+    options = options || {};
+    const done = (err, result) => {
+        if (typeof callback === 'function') callback(err, result);
+    };
+
+    const now = Date.now();
+    if (!options.force && _lastUpstreamSyncAt > 0 && (now - _lastUpstreamSyncAt) < SYNC_COOLDOWN_MS) {
+        return done(null, {
+            skipped: true,
+            updated: false,
+            heroCount: Object.keys(Config.hero).length,
+            itemCount: Object.keys(Config.item).length
+        });
+    }
+
+    if (_syncInFlight) {
+        _syncInFlight.push(done);
+        return;
+    }
+    _syncInFlight = [done];
+    const finishAll = (err, result) => {
+        const listeners = _syncInFlight || [];
+        _syncInFlight = null;
+        for (const fn of listeners) {
+            try { fn(err, result); } catch (_) {}
+        }
+    };
+
+    const targetUrl = options.url || UPSTREAM_CONFIG_URL;
+    const req = http.get(targetUrl, { timeout: 15000 }, (res) => {
+        if (res.statusCode !== 200) {
+            res.resume();
+            return finishAll(new Error(`Upstream ConfigData HTTP ${res.statusCode}`), null);
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+            try {
+                const rawBuf = Buffer.concat(chunks);
+                const plainBuf = decryptDdsBuffer(rawBuf);
+                const plainStr = plainBuf.toString('utf8');
+                const parsed = JSON.parse(plainStr);
+                if (!parsed || !Array.isArray(parsed.hero) || !Array.isArray(parsed.item)) {
+                    throw new Error('Upstream ConfigData JSON missing hero/item tables');
+                }
+                const configPath = path.join(__dirname, 'ConfigData.json');
+                const newHash = crypto.createHash('md5').update(plainBuf).digest('hex');
+                let oldHash = '';
+                if (fs.existsSync(configPath)) {
+                    oldHash = crypto.createHash('md5').update(fs.readFileSync(configPath)).digest('hex');
+                }
+                _lastUpstreamSyncAt = Date.now();
+                let updated = false;
+                if (newHash !== oldHash) {
+                    fs.writeFileSync(configPath, plainStr, 'utf8');
+                    loadConfigData();
+                    updated = true;
+                    console.log(`[+] Synced upstream ConfigData.json (Heroes: ${Object.keys(Config.hero).length}, Items: ${Object.keys(Config.item).length})`);
+                }
+                finishAll(null, {
+                    skipped: false,
+                    updated: updated,
+                    heroCount: Object.keys(Config.hero).length,
+                    itemCount: Object.keys(Config.item).length
+                });
+            } catch (err) {
+                finishAll(err, null);
+            }
+        });
+    });
+    req.on('timeout', () => {
+        req.destroy(new Error('Upstream ConfigData request timed out'));
+    });
+    req.on('error', (err) => {
+        finishAll(err, null);
+    });
+}
+
 loadConfigData();
 
 if (typeof global !== 'undefined') {
@@ -380,5 +525,7 @@ if (typeof global !== 'undefined') {
 module.exports = {
     Config,
     ConfigGlobalVar,
-    loadConfigData
+    loadConfigData,
+    decryptDdsBuffer,
+    syncConfigFromUpstream
 };

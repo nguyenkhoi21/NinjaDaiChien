@@ -571,7 +571,7 @@ var LIMITED_ARENA_THEMES = [
         aliases: ["2", "uchiha", "nhanthuat", "sharingan", "dojutsu"],
         name: "Tuần Gia Tộc Uchiha & Nhãn Thuật",
         description: "Chỉ cho phép tộc Uchiha, Sharingan, Rinnegan và Byakugan.",
-        allowedIds: [10030, 10830, 10940, 10120, 10780, 10610, 10160, 10570, 10370, 10700, 10920, 10860, 10050, 10750, 10470, 10380, 10660, 10080, 10220, 10950]
+        allowedIds: [10030, 10830, 10940, 10120, 10780, 10610, 10160, 10570, 10370, 10700, 10920, 10860, 10050, 10750, 10470, 10380, 10660, 10080, 10220, 10950, 11070]
     },
     {
         id: 3,
@@ -587,7 +587,7 @@ var LIMITED_ARENA_THEMES = [
         aliases: ["4", "jinchuriki", "vithu", "lucdao", "sage", "tiennhan"],
         name: "Tuần Vĩ Thú, Tiên Nhân & Lục Đạo",
         description: "Chỉ cho phép Jinchuriki, Hiền Nhân, Lục Đạo và gia tộc Otsutsuki.",
-        allowedIds: [10020, 10810, 10960, 11060, 10890, 10490, 10650, 10090, 10850, 10680, 10170, 10570, 10700, 10770, 10100, 10740, 10820, 10880, 10280, 10970, 11020, 10840, 10860, 10900, 10710, 10930, 11030, 11040, 11050]
+        allowedIds: [10020, 10810, 10960, 11060, 10890, 10490, 10650, 10090, 10850, 10680, 10170, 10570, 10700, 10770, 10100, 10740, 10820, 10880, 10280, 10970, 11020, 10840, 10860, 10900, 10710, 10930, 11030, 11040, 11050, 11070]
     },
     {
         id: 5,
@@ -660,6 +660,16 @@ function getActiveLimitedArenaTheme(nowMs) {
         if (!allowedSet[hid]) {
             allowedSet[hid] = true;
             allowedIds.push(hid);
+        }
+    }
+    // Tự động cho phép các tướng mới ra mắt (ID >= 11070, có hồn ghép) vào tuần Vĩ Thú / Konoha
+    if (typeof Config !== "undefined" && Config.hero && (chosen.key === "jinchuriki" || chosen.key === "konoha")) {
+        for (var hk in Config.hero) {
+            var nhId = Number(hk);
+            if (nhId >= 11070 && nhId < 15000 && Number(Config.hero[hk].sum_soul || 0) > 0 && !allowedSet[nhId]) {
+                allowedSet[nhId] = true;
+                allowedIds.push(nhId);
+            }
         }
     }
 

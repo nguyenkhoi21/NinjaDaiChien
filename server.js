@@ -19,7 +19,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 // 1. Load Game Configs (ConfigData.json), SVRCMD & Cache globals
-require('./config/configLoader');
+const { syncConfigFromUpstream } = require('./config/configLoader');
 const { onlineEvents, onlineLucky } = require('./config/onlineEventsData');
 
 // 2. Load Database & Persistence Layer
@@ -73,16 +73,16 @@ const OfflineServer = Object.assign(
         onlineEvents: onlineEvents,
         onlineLucky: onlineLucky,
 
-        logPacket: function() {},
+        logPacket: function () { },
 
-        loadSave: function() {
+        loadSave: function () {
             if (!this.data) {
                 this.initDefaultData();
             }
             this.ensureDataFields();
         },
 
-        ensureDataFields: function() {
+        ensureDataFields: function () {
             if (!this.data) return;
             if (!this.data.items) this.data.items = {};
             if (!this.data.equip) this.data.equip = {};
@@ -126,9 +126,9 @@ const OfflineServer = Object.assign(
             if (!this.data.next_secret_id) this.data.next_secret_id = 1;
         },
 
-        save: function() {},
+        save: function () { },
 
-        initDefaultData: function() {
+        initDefaultData: function () {
             this.data = {
                 gold: 50000,
                 stone: 500,
@@ -194,7 +194,7 @@ const OfflineServer = Object.assign(
             };
         },
 
-        buildPlayerAttrPayload: function() {
+        buildPlayerAttrPayload: function () {
             return {
                 team_name: this.data.team_name || "Nhẫn Giả",
                 team_lv: Number(this.data.team_lv || 1),
@@ -223,18 +223,18 @@ const OfflineServer = Object.assign(
         handlePlayer: handlePlayer,
         handleChapter: handleChapter,
 
-        handle: function(cmd, params, extRespond, extQueuePush) {
+        handle: function (cmd, params, extRespond, extQueuePush) {
             const self = this;
             this.loadSave();
             const pendingPushes = [];
-            const queuePush = function(pCmd, pData) {
+            const queuePush = function (pCmd, pData) {
                 pendingPushes.push({
                     cmd: pCmd,
                     data: pData !== undefined ? pData : {}
                 });
             };
             let responded = false;
-            const respond = function(data, err) {
+            const respond = function (data, err) {
                 if (responded) return;
                 responded = true;
                 self.save();
@@ -482,6 +482,13 @@ const server = http.createServer((req, res) => {
 
     if (req.url === '/static/hotfix/android/version.manifest' || req.url === '/static/hotfix/android/project.manifest') {
         const isProject = req.url.endsWith('project.manifest');
+        if (isProject) {
+            syncConfigFromUpstream({ reason: 'manifest-proxy' }, (syncErr, syncRes) => {
+                if (!syncErr && syncRes && syncRes.updated && typeof OfflineServer.syncOnlineLuckyWithLatestHero === 'function') {
+                    OfflineServer.syncOnlineLuckyWithLatestHero();
+                }
+            });
+        }
         const upstreamUrl = 'http://103.90.227.124:8080' + req.url;
         const host = req.headers.host || '127.0.0.1:8080';
         const baseSelf = `http://${host}/static/hotfix/android/`;
@@ -619,11 +626,11 @@ const server = http.createServer((req, res) => {
                     } catch (e) {
                         const sp = new URLSearchParams(bodyStr);
                         if (sp.has('pkg')) {
-                            try { pkg = JSON.parse(sp.get('pkg')); } catch (e2) {}
+                            try { pkg = JSON.parse(sp.get('pkg')); } catch (e2) { }
                         }
                     }
                 } else if (parsedUrl.searchParams.has('pkg')) {
-                    try { pkg = JSON.parse(parsedUrl.searchParams.get('pkg')); } catch (e) {}
+                    try { pkg = JSON.parse(parsedUrl.searchParams.get('pkg')); } catch (e) { }
                 }
                 if (!Array.isArray(pkg)) pkg = [];
 
@@ -874,6 +881,20 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 if (require.main === module) {
+    syncConfigFromUpstream({ reason: 'startup' }, (syncErr, syncRes) => {
+        if (!syncErr && syncRes && syncRes.updated && typeof OfflineServer.syncOnlineLuckyWithLatestHero === 'function') {
+            OfflineServer.syncOnlineLuckyWithLatestHero();
+        }
+    });
+    const upstreamSyncTimer = setInterval(() => {
+        syncConfigFromUpstream({ reason: 'periodic' }, (syncErr, syncRes) => {
+            if (!syncErr && syncRes && syncRes.updated && typeof OfflineServer.syncOnlineLuckyWithLatestHero === 'function') {
+                OfflineServer.syncOnlineLuckyWithLatestHero();
+            }
+        });
+    }, 60 * 60 * 1000);
+    if (upstreamSyncTimer.unref) upstreamSyncTimer.unref();
+
     server.listen(PORT, '0.0.0.0', () => {
         console.log(`=======================================================`);
         console.log(`🍃 Ninja Rebirth Standalone Online Server is running!`);

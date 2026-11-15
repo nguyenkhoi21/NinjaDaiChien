@@ -51,8 +51,31 @@ const globalLanterns = [
 
 let globalChatSeq = 100;
 
+const { syncConfigFromUpstream } = require("../config/configLoader");
+
+function createSystemChatMessage(session, sysReply, chatType) {
+    var sysChatObj = {
+        id: ++globalChatSeq,
+        source_server: 1,
+        player_id: 100,
+        player_name: "[Hệ Thống]",
+        player_icon: 10010,
+        player_lv: 99,
+        player_vip: 15,
+        create_time: Math.floor(Date.now() / 1000),
+        fight_record_id: 0,
+        msg: sysReply,
+        send_to: chatType === -2 ? session.getNumericId() : chatType,
+        send_to_name: (session.data && session.data.team_name) || "",
+        group_id: Number((session.data && session.data.group_id) || 1)
+    };
+    globalChats.unshift(sysChatObj);
+    if (globalChats.length > 100) globalChats.pop();
+    return sysChatObj;
+}
+
 const GmAndChatHandler = {
-    handleGmAndChatCommand: function(cmd, params, respond, queuePush) {
+    handleGmAndChatCommand: function (cmd, params, respond, queuePush) {
         var noFight = { code: 1, msg: "Không có dữ liệu trận đấu để xem lại!" };
 
         if (cmd === "GetFaceBookUrl" || cmd === SVRCMD.GetFaceBookUrl) {
@@ -127,6 +150,26 @@ const GmAndChatHandler = {
             }
 
             var trimmedCmd = String(msgText || "").trim();
+            var syncCmdMatch = trimmedCmd.match(/^\/(?:sync|update)(?:\s+(.*))?$/i);
+            if (syncCmdMatch) {
+                var self = this;
+                syncConfigFromUpstream({ force: true }, function (syncErr, syncRes) {
+                    var soulEntries = typeof self.syncOnlineLuckyWithLatestHero === "function"
+                        ? self.syncOnlineLuckyWithLatestHero()
+                        : [];
+                    var heroCount = (syncRes && syncRes.heroCount) || (typeof Config !== "undefined" && Config.hero ? Object.keys(Config.hero).length : 0);
+                    var itemCount = (syncRes && syncRes.itemCount) || (typeof Config !== "undefined" && Config.item ? Object.keys(Config.item).length : 0);
+                    var latest = soulEntries && soulEntries.length > 0 ? soulEntries[0] : null;
+                    var latestLabel = latest
+                        ? (String(latest.name || ("Hero " + latest.heroId)).replace(/\s*\(Souls\)\s*$/i, "") + " (Soul " + latest.soulId + ")")
+                        : "Không xác định";
+                    var errNote = syncErr ? " [Lỗi upstream: " + syncErr.message + "]" : "";
+                    var syncReply = "[Đồng Bộ] Đã cập nhật Config (" + heroCount + " Tướng, " + itemCount + " Item). Tướng mới nhất trên Vòng Quay KC: " + latestLabel + "." + errNote;
+                    respond({ chat: createSystemChatMessage(self, syncReply, chatType) });
+                });
+                return true;
+            }
+
             var limCmdMatch = trimmedCmd.match(/^\/lim(?:\s+(.*))?$/i);
             var towerCmdMatch = trimmedCmd.match(/^\/tower(?:\s+(.*))?$/i);
             if (limCmdMatch || towerCmdMatch) {
@@ -174,24 +217,7 @@ const GmAndChatHandler = {
                     }
                 }
 
-                var sysChatObj = {
-                    id: ++globalChatSeq,
-                    source_server: 1,
-                    player_id: 100,
-                    player_name: "[Hệ Thống]",
-                    player_icon: 10010,
-                    player_lv: 99,
-                    player_vip: 15,
-                    create_time: Math.floor(Date.now() / 1000),
-                    fight_record_id: 0,
-                    msg: sysReply,
-                    send_to: chatType === -2 ? this.getNumericId() : chatType,
-                    send_to_name: this.data.team_name || "",
-                    group_id: Number(this.data.group_id || 1)
-                };
-                globalChats.unshift(sysChatObj);
-                if (globalChats.length > 100) globalChats.pop();
-                respond({ chat: sysChatObj });
+                respond({ chat: createSystemChatMessage(this, sysReply, chatType) });
                 return true;
             }
 
@@ -233,7 +259,7 @@ const GmAndChatHandler = {
             var reqType = (params && params[0] !== undefined) ? Number(params[0]) : 0;
             var myUid = this.getNumericId();
             var myGroupId = Number(this.data.group_id || 1);
-            var filtered = globalChats.filter(function(c) {
+            var filtered = globalChats.filter(function (c) {
                 if (reqType === 0) {
                     return Number(c.send_to) === 0 && !c.lsv;
                 }
@@ -292,7 +318,7 @@ const GmAndChatHandler = {
 
         // Battle replays: no stored fight data -> clean error instead of client crash
         if (["GetChatFightData", "GroupFightHistoryInfo", "CsGroupFightHistoryInfo", "CrossArenaFightHistoryInfo",
-             "CrossDarkArenaFightHistoryInfo", "PlunderHistoryInfo"].indexOf(cmd) >= 0) {
+            "CrossDarkArenaFightHistoryInfo", "PlunderHistoryInfo"].indexOf(cmd) >= 0) {
             respond({}, noFight);
             return true;
         }
@@ -397,7 +423,7 @@ const GmAndChatHandler = {
             return true;
         }
         if (["GMSetSkillCount", "GMOnDay", "GMResetTask", "GMResetSpecialChapter", "GMSendArenaReward",
-             "GMSendFiveStar", "ReloadBaseData", "Check_user", "Check_anysdk_user", "Check_vietnam_user", "FiveStar"].indexOf(cmd) >= 0) {
+            "GMSendFiveStar", "ReloadBaseData", "Check_user", "Check_anysdk_user", "Check_vietnam_user", "FiveStar"].indexOf(cmd) >= 0) {
             respond({ status: 1 });
             return true;
         }
