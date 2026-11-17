@@ -422,7 +422,14 @@ const GmAndChatHandler = {
             respond({ status: 1, chapters: this.data.chapters });
             return true;
         }
-        if (["GMSetSkillCount", "GMOnDay", "GMResetTask", "GMResetSpecialChapter", "GMSendArenaReward",
+        if (cmd === "GMSendArenaReward") {
+            const { distribute21hArenaRewards } = require("../services/arenaRewardService");
+            const sent = distribute21hArenaRewards(typeof playerDb !== "undefined" ? playerDb : null, typeof markDirty !== "undefined" ? markDirty : null);
+            if (typeof saveDb === "function") saveDb();
+            respond({ status: 1, sent: sent });
+            return true;
+        }
+        if (["GMSetSkillCount", "GMOnDay", "GMResetTask", "GMResetSpecialChapter",
             "GMSendFiveStar", "ReloadBaseData", "Check_user", "Check_anysdk_user", "Check_vietnam_user", "FiveStar"].indexOf(cmd) >= 0) {
             respond({ status: 1 });
             return true;

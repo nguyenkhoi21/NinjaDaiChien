@@ -287,6 +287,63 @@ function handlePlayer(cmd, params, respond, queuePush) {
         return true;
     }
     if (cmd === "ReadMessage" || cmd === SVRCMD.ReadMessage || cmd === SVRCMD.ReceiveAttachment) {
+        const msgId = Number((params && params[0]) || 0);
+        const msgs = Array.isArray(this.data.messages) ? this.data.messages : [];
+        let targetMail = null;
+        for (let mi = 0; mi < msgs.length; mi++) {
+            if (Number(msgs[mi] && msgs[mi].id) === msgId) {
+                targetMail = msgs[mi];
+                break;
+            }
+        }
+        if (targetMail && Number(targetMail.has_read || 0) === 0) {
+            targetMail.has_read = 1;
+            let pObj = {};
+            if (targetMail.params) {
+                if (typeof targetMail.params === "string") {
+                    try { pObj = JSON.parse(targetMail.params); } catch (e) { pObj = {}; }
+                } else if (typeof targetMail.params === "object") {
+                    pObj = targetMail.params;
+                }
+            }
+            if (Number(pObj.bonus_point || 0) > 0) {
+                this.data.cs_dark_arena_point = Number(this.data.cs_dark_arena_point || 0) + Number(pObj.bonus_point);
+                if (queuePush) queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            }
+            if (Number(pObj.gold || 0) > 0) this.addGold(Number(pObj.gold), queuePush);
+            if (Number(pObj.group_point || 0) > 0) {
+                const gpField = (Number(targetMail.message_type) === 20 || Number(targetMail.message_type) === 21) ? "cs_group_point" : "group_point";
+                this.data[gpField] = Number(this.data[gpField] || 0) + Number(pObj.group_point);
+                if (queuePush) queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+            }
+            const multi = pObj.multi ? (Number(pObj.multi) + 1) : 1;
+            const boxId = Number(targetMail.box_id || pObj.box_id || pObj.boxId || 0);
+            if (boxId > 0 && typeof Config !== "undefined" && Config.box_drop && Config.box_drop[boxId]) {
+                const grp = Config.box_drop[boxId];
+                const dKeys = Object.keys(grp);
+                for (let di = 0; di < dKeys.length; di++) {
+                    const dObj = grp[dKeys[di]];
+                    if (!dObj) continue;
+                    this.grantBoxDropReward({
+                        type: dObj.type,
+                        item_id: dObj.item_id,
+                        amount: Number(dObj.amount || 1) * multi
+                    }, queuePush);
+                }
+            }
+            if (Array.isArray(pObj.items)) {
+                for (let ii = 0; ii < pObj.items.length; ii++) {
+                    const it = pObj.items[ii];
+                    if (!it) continue;
+                    this.grantBoxDropReward({
+                        type: Number(it.type || 1),
+                        item_id: Number(it.item_id || 0),
+                        amount: Number(it.amount || 1)
+                    }, queuePush);
+                }
+            }
+            this.save();
+        }
         respond({ status: 1, id: params && params[0] });
         return true;
     }

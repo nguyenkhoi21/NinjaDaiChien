@@ -366,6 +366,7 @@ function initSimContext() {
             BattleManager: typeof BattleManager !== "undefined" ? BattleManager : null,
             BattleModle: typeof BattleModle !== "undefined" ? BattleModle : null,
             UnitGenerater: typeof UnitGenerater !== "undefined" ? UnitGenerater : null,
+            MonsterUnitGenerater: typeof MonsterUnitGenerater !== "undefined" ? MonsterUnitGenerater : null,
             BattleAI: typeof BattleAI !== "undefined" ? BattleAI : null,
             BattleActionGenerater: typeof BattleActionGenerater !== "undefined" ? BattleActionGenerater : null,
             juggler: typeof juggler !== "undefined" ? juggler : null,
@@ -600,6 +601,61 @@ function simulateBattleFromHeroes(atkHeros, defHeros, seed) {
     return runBattleWithModle(ctx, bm, actualSeed);
 }
 
+function simulateCrossBossBattle(atkHeros, bossNpcs, seed) {
+    const ctx = initSimContext();
+    if (global.Config && ctx.Config !== global.Config && typeof ctx._updateConfig === "function") {
+        ctx._updateConfig(global.Config, global.Config.global || {});
+    }
+    if (!ctx.UnitGenerater || typeof ctx.UnitGenerater.gen !== "function") {
+        throw new Error("UnitGenerater is not initialized in battleSimulator context");
+    }
+    if (!ctx.MonsterUnitGenerater || typeof ctx.MonsterUnitGenerater.gen !== "function") {
+        throw new Error("MonsterUnitGenerater is not initialized in battleSimulator context");
+    }
+
+    const atkList = (Array.isArray(atkHeros) && atkHeros.length > 0) ? atkHeros.slice(0, 5) : [{ hid: 10020, lv: 80, quality: 10 }];
+    const defList = (Array.isArray(bossNpcs) && bossNpcs.length > 0)
+        ? bossNpcs
+        : [{ hero_id: 17000, hero_quality: 12, hero_level: 50, isboss: 0 }];
+    const actualSeed = (seed !== undefined && seed !== null) ? Number(seed) : Math.floor(Math.random() * 900000) + 100000;
+
+    const bm = new ctx.BattleModle();
+    bm.seed = actualSeed;
+    bm.attackGroup = [];
+    bm.defenceGroup = [];
+
+    for (let i = 0; i < atkList.length; i++) {
+        const uObj = buildUnitGeneratorInput(atkList[i], ctx.Config);
+        const unit = ctx.UnitGenerater.gen(uObj);
+        unit.id = i + 1;
+        unit.setCurPosition(ctx.cc.p(0, 0));
+        bm.attackGroup.push(unit);
+    }
+
+    for (let j = 0; j < defList.length; j++) {
+        const npc = defList[j];
+        const unit = ctx.MonsterUnitGenerater.gen(
+            Number(npc.hero_id),
+            Number(npc.hero_quality || 11),
+            Number(npc.hero_level || 50),
+            Number(npc.isboss || 0),
+            npc.hasawake
+        );
+        unit.id = 6 + j;
+        unit.setCurPosition(ctx.cc.p(0, 0));
+        bm.defenceGroup.push(unit);
+    }
+
+    const res = runBattleWithModle(ctx, bm, actualSeed);
+    let totalDamage = 0;
+    const dMap = (res && res.replay && res.replay.d) ? res.replay.d : {};
+    for (let i = 0; i < atkList.length; i++) {
+        totalDamage += Math.max(0, Math.floor(Number(dMap[String(i + 1)] || 0)));
+    }
+    res.totalDamage = totalDamage;
+    return res;
+}
+
 function simulateBattleFromBm(bmStr, seed) {
     const ctx = initSimContext();
     if (global.Config && ctx.Config !== global.Config && typeof ctx._updateConfig === "function") {
@@ -634,6 +690,7 @@ module.exports = {
     initSimContext,
     simulateBattleFromBm,
     simulateBattleFromHeroes,
+    simulateCrossBossBattle,
     checkAndUpdateBattleEngine
 };
 

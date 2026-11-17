@@ -57,6 +57,7 @@ const GuildHandler = require('./handlers/guildHandler');
 const GmAndChatHandler = require('./handlers/gmAndChatHandler');
 const { handleGmWebRequest } = require('./handlers/gmWebHandler');
 const { getServerSettings } = require('./config/serverSettings');
+const { startArenaRewardScheduler } = require('./services/arenaRewardService');
 
 const PORT = process.env.PORT || 8088;
 
@@ -65,6 +66,7 @@ loadDbFromSupabase();
 
 // Periodic auto-save every 10 seconds
 setInterval(saveDb, 10000);
+startArenaRewardScheduler({ playerDb, markDirty, saveDb });
 
 // Active WebSocket connections
 const connectedSockets = new Set();

@@ -1377,6 +1377,10 @@ const EventAndSignInHandler = {
             }
 
             // SVRCMD.TaskSweep || SVRCMD.AfterTaskFight
+            if (cmd === SVRCMD.AfterTaskFight && params && params.length >= 2 && Number(params[1]) === 0) {
+                respond({ is_win: 0, items: [], task_id: this.data.cur_task_id || 11011 });
+                return true;
+            }
             var tid = this.data.cur_task_id || 11011;
             var tCfg = (typeof Config !== "undefined" && Config.task && Config.task[tid]) ? Config.task[tid] : null;
             var expGain = tCfg ? Number(tCfg.team_exp || 20) : 20;
@@ -1388,7 +1392,7 @@ const EventAndSignInHandler = {
             if (tCfg && tCfg.box_id && typeof Config !== "undefined" && Config.box_drop && Config.box_drop[tCfg.box_id]) {
                 var grp = Config.box_drop[tCfg.box_id];
                 var dKeys = Object.keys(grp);
-                for (var dIdx = 0; dIdx < Math.min(2, dKeys.length); dIdx++) {
+                for (var dIdx = 0; dIdx < dKeys.length; dIdx++) {
                     var dObj = grp[dKeys[dIdx]];
                     if (dObj) {
                         var granted = this.grantBoxDropReward(dObj, queuePush);
