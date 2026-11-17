@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const zlib = require("zlib");
+const vm = require("vm");
 
 const CLIENT_BATTLE_DIR = path.join(__dirname, "..", "battle_engine", "modules", "battle");
 
@@ -728,6 +729,13 @@ async function checkAndUpdateBattleEngine() {
             if (savedMd5[actualKey] === entry.md5) continue;
             const fileBuf = await fetchBuffer(pkgUrl + actualKey);
             const decBuf = decryptDdsBuffer(fileBuf);
+            const codeStr = decBuf.toString("utf8");
+            try {
+                new vm.Script(codeStr, { filename: rel });
+            } catch (syntaxErr) {
+                console.warn("[BattleSimulator] Skipped invalid JS from hotfix:", actualKey, syntaxErr.message);
+                continue;
+            }
             const outPath = path.join(__dirname, "..", "battle_engine", rel);
             fs.mkdirSync(path.dirname(outPath), { recursive: true });
             fs.writeFileSync(outPath, decBuf);

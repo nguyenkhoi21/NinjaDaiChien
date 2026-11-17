@@ -1569,6 +1569,112 @@ const HeroHandler = {
             return true;
         }
 
+        // Auto-equip / Auto-craft green slots & auto-promote if all 6 slots are equipped
+        if (cmd === "AutoUpgradeQuality") {
+            var aHeroId = Number((params && params[0]) || 0);
+            var ah = this.data.heros && this.data.heros[aHeroId];
+            if (!ah) {
+                return respond({}, { code: 1, msg: "Không tìm thấy Ninja!" }), true;
+            }
+            var curQ = Number(ah.quality || 1);
+            var qCfg = (typeof Config !== "undefined" && Config.heroQuality && Config.heroQuality[curQ]) ? Config.heroQuality[curQ][aHeroId] : null;
+            var equippedSlots = [];
+            if (qCfg) {
+                for (var slot = 1; slot <= 6; slot++) {
+                    if (Number(ah["equip_" + slot] || 0) > 0) continue;
+                    var reqEqId = Number(qCfg["equip_" + slot] || 0);
+                    var eqCfg = (reqEqId > 0 && Config.equip) ? Config.equip[reqEqId] : null;
+                    if (!eqCfg) continue;
+                    if (Number(eqCfg.level || 0) > Number(ah.lv || 1) || Number(eqCfg.quality || 0) > curQ) continue;
+
+                    if (this.getEquipAmount(reqEqId) >= 1) {
+                        this.deductEquip(reqEqId, 1, queuePush);
+                        ah["equip_" + slot] = reqEqId;
+                        equippedSlots.push(slot);
+                    } else if (Number(eqCfg.forge_id || 0) > 0) {
+                        var fId = Number(eqCfg.forge_id);
+                        var fAmt = Math.max(1, Number(eqCfg.forge_amount || 1));
+                        var fCoin = Math.max(0, Number(eqCfg.forge_coin || 0));
+                        if (this.getItemAmount(fId) >= fAmt && this.canDeductGold(fCoin)) {
+                            this.deductItem(fId, fAmt, queuePush);
+                            if (fCoin > 0) this.deductGold(fCoin, queuePush);
+                            ah["equip_" + slot] = reqEqId;
+                            equippedSlots.push(slot);
+                        }
+                    }
+                }
+            }
+
+            var allSixEquipped = true;
+            for (var cs = 1; cs <= 6; cs++) {
+                if (Number(ah["equip_" + cs] || 0) <= 0) {
+                    allSixEquipped = false;
+                    break;
+                }
+            }
+
+            var upgraded = false;
+            var nextQ = curQ + 1;
+            var qUp = (typeof Config !== "undefined" && Config.hero_quality_up) ? Config.hero_quality_up[curQ] : null;
+            if (allSixEquipped && qUp && Number(qUp.is_open) === 1 && Config.heroQuality && Config.heroQuality[nextQ] && Config.heroQuality[nextQ][aHeroId]) {
+                var canPromote = true;
+                var hCfgA = (Config.hero && Config.hero[aHeroId]) ? Config.hero[aHeroId] : null;
+                if (curQ === 11) {
+                    var soul11 = this.findSoulItemId(aHeroId);
+                    if (this.getItemAmount(soul11) < 200) canPromote = false;
+                    if (hCfgA && hCfgA.awake_equip_id && this.getEquipAmount(hCfgA.awake_equip_id) < 1) canPromote = false;
+                } else if (Number(qUp.type) === 2) {
+                    var soul12 = this.findSoulItemId(aHeroId);
+                    if (this.getItemAmount(soul12) < 300) canPromote = false;
+                    if (hCfgA && hCfgA.awake2_equip_ids) {
+                        var eqArrA = String(hCfgA.awake2_equip_ids).split(",");
+                        for (var eai = 0; eai < eqArrA.length; eai++) {
+                            var eidA = Number(eqArrA[eai]);
+                            if (eidA > 0 && this.getEquipAmount(eidA) < 1) canPromote = false;
+                        }
+                    }
+                } else {
+                    var needSoulA = Number(qUp.need_soul || qUp.soul_count || 0);
+                    if (needSoulA > 0 && this.getItemAmount(this.findSoulItemId(aHeroId)) < needSoulA) canPromote = false;
+                }
+
+                if (canPromote) {
+                    if (curQ === 11) {
+                        this.deductItem(this.findSoulItemId(aHeroId), 200, queuePush);
+                        if (hCfgA && hCfgA.awake_equip_id) this.deductEquip(hCfgA.awake_equip_id, 1, queuePush);
+                    } else if (Number(qUp.type) === 2) {
+                        this.deductItem(this.findSoulItemId(aHeroId), 300, queuePush);
+                        if (hCfgA && hCfgA.awake2_equip_ids) {
+                            var eqArrA2 = String(hCfgA.awake2_equip_ids).split(",");
+                            for (var eai2 = 0; eai2 < eqArrA2.length; eai2++) {
+                                var eidA2 = Number(eqArrA2[eai2]);
+                                if (eidA2 > 0) this.deductEquip(eidA2, 1, queuePush);
+                            }
+                        }
+                    } else {
+                        var needSoulB = Number(qUp.need_soul || qUp.soul_count || 0);
+                        if (needSoulB > 0) this.changeItemAmount(this.findSoulItemId(aHeroId), -needSoulB, queuePush);
+                    }
+                    ah.quality = nextQ;
+                    ah.equip_1 = ah.equip_2 = ah.equip_3 = ah.equip_4 = ah.equip_5 = ah.equip_6 = 0;
+                    if (nextQ >= 12) ah.has_awake = 1;
+                    upgraded = true;
+                }
+            }
+
+            if (equippedSlots.length > 0 || upgraded) {
+                queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(aHeroId) });
+                this.save();
+            }
+            respond({
+                hero_id: aHeroId,
+                equipped_slots: equippedSlots,
+                upgraded: upgraded,
+                quality: Number(ah.quality || 1)
+            });
+            return true;
+        }
+
         // Swap 6 tactic scroll slots between two heroes (from SECRET_SWAP_UI_V1)
         if (cmd === "SwapHeroSecrets") {
             var heroA = Number((params && params[0]) || 0);
