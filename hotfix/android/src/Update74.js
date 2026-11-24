@@ -6100,3 +6100,96 @@ var Cross3v3View = BaseLayer.extend({
         };
     }
 })();
+
+
+(function () {
+    if (typeof FightLayer === "undefined" || typeof FightDataManager === "undefined" ||
+        typeof BattleManager === "undefined") return;
+
+    var layer = FightLayer.prototype;
+    if (layer._mobileFps229) return;
+    layer._mobileFps229 = true;
+
+    function highSpeed() {
+        return typeof BATTLE_SPEED !== "undefined" && BATTLE_SPEED === 3;
+    }
+
+    var originalRender = layer.render;
+    var originalUpdate = BattleManager.prototype.update;
+    var usesBudget = String(originalUpdate).indexOf("_pendingBattleSteps") >= 0;
+    var installBudget = !usesBudget && typeof checkBattleModel === "function" &&
+        typeof _battle_check_time === "number" && typeof BattleManager.prototype.speedSteps === "function";
+    var updated = 0;
+    function budgetUpdate(dt) {
+        if (!this._isRunning) return;
+        if (!this.replaydata && !checkBattleModel([this.orgMode])) {
+            this._pendingBattleSteps = 0;
+            this.battleEnd();
+            return;
+        }
+        if (!this.replaydata) this._checkTime += dt;
+
+        var now = Cache.getServerTime();
+        var ticks = this._lastBeat == 0 ? 1 : Math.floor((now - this._battlePause - this._lastBeat) / _battle_check_time);
+        ticks = Math.min(ticks, 3);
+        if (ticks > 0) {
+            this._pendingBattleSteps = (this._pendingBattleSteps || 0) + this.speedSteps(ticks);
+            this._lastBeat = this._lastBeat == 0 ? now : this._lastBeat + _battle_check_time * ticks;
+        }
+
+        var beginning = Date.now();
+        for (var steps = 0; this._pendingBattleSteps > 0 && steps < 4; steps++) {
+            if (steps && Date.now() - beginning >= 12) break;
+            this._pendingBattleSteps--;
+            if (this.onProcess()) {
+                this._pendingBattleSteps = 0;
+                return;
+            }
+        }
+        if (!this.replaydata && this._checkTime > this._checkcd) this._checkTime -= this._checkcd;
+    }
+    if (installBudget) {
+        var originalBegin = BattleManager.prototype.beginWithModle;
+        BattleManager.prototype.beginWithModle = function () {
+            this._pendingBattleSteps = 0;
+            return originalBegin.apply(this, arguments);
+        };
+    }
+    BattleManager.prototype.update = function (dt) {
+        var start = Date.now();
+        try {
+            if (installBudget && (highSpeed() || this._pendingBattleSteps > 0) && !this.isCheck()) {
+                return budgetUpdate.call(this, dt);
+            }
+            return originalUpdate.apply(this, arguments);
+        } finally { updated = Date.now() - start; }
+    };
+    usesBudget = usesBudget || installBudget;
+    layer.render = function () {
+        var start = Date.now();
+        updated = 0;
+        var result = originalRender.apply(this, arguments);
+        var end = Date.now();
+        var speed = highSpeed() ? 3 : BattleManager.shared().getSpeed();
+        var stats = this._mobileFpsSample;
+        if (!stats || stats.speed !== speed) {
+            stats = this._mobileFpsSample = { speed: speed, since: end, frames: 0, render: 0, sim: 0, pending: 0 };
+            cc.log("[BattleFPS230] active speed=" + speed + " budget=" + usesBudget);
+        }
+        stats.frames++;
+        stats.render += end - start;
+        stats.sim += updated;
+        stats.pending = Math.max(stats.pending, BattleManager.shared()._pendingBattleSteps || 0);
+        if (end - stats.since >= 3000) {
+            cc.log("[BattleFPS230] speed=" + speed +
+                " fps=" + Math.round(1000 * stats.frames / (end - stats.since)) +
+                " avgRenderMs=" + (stats.render / stats.frames).toFixed(2) +
+                " avgSimMs=" + (stats.sim / stats.frames).toFixed(2) +
+                " maxPending=" + stats.pending);
+            stats.since = end;
+            stats.frames = stats.render = stats.sim = stats.pending = 0;
+        }
+        return result;
+    };
+    cc.log("[BattleFPS230] hook loaded; budget=" + usesBudget);
+})();
