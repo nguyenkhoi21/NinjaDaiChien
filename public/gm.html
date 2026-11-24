@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ninja Đại Chiến — GM Panel & Theme</title>
+    <title>Ninja Đại Chiến — GM Panel</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -37,7 +37,7 @@
             padding: 14px 18px;
             margin-bottom: 16px;
         }
-        .theme-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .btn {
             background: var(--accent);
             color: #fff;
@@ -47,13 +47,14 @@
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
         }
         .btn:hover { filter: brightness(1.1); }
         .btn.green { background: var(--green); }
         .btn.gold { background: var(--gold); color: #111; }
         .btn.red { background: var(--red); }
         .btn.ghost { background: #21262d; border: 1px solid var(--border); color: var(--text); }
-        .btn.active { outline: 2px solid #58a6ff; }
         .layout {
             display: grid;
             grid-template-columns: 300px 1fr;
@@ -105,7 +106,7 @@
         .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
             gap: 10px;
             margin-bottom: 16px;
         }
@@ -168,13 +169,13 @@
     <div class="topbar">
         <div>
             <h1>🍃 Ninja Đại Chiến — GM Panel</h1>
-            <div style="font-size:13px;color:var(--muted)">Quản lý Theme Server, Tài khoản, Buff Tiền tệ, Item (tên Tiếng Việt + ảnh), Tướng, Khung & Skin</div>
+            <div style="font-size:13px;color:var(--muted)" id="server-summary">Đang tải trạng thái server...</div>
         </div>
-        <div class="theme-box">
-            <span style="font-size:13px;color:var(--muted)">Theme Server:</span>
-            <button id="btn-theme-noel" class="btn ghost" onclick="setTheme('noel')">❄️ Giáng Sinh (Noel)</button>
-            <button id="btn-theme-default" class="btn ghost" onclick="setTheme('default')">🌿 Mặc định</button>
-            <a href="/logs" target="_blank" class="btn ghost" style="text-decoration:none">📡 Packet Logs</a>
+        <div class="nav-links">
+            <button class="btn green" onclick="syncAllServer()">🔄 Đồng Bộ Config &amp; Hotfix</button>
+            <a href="/logs" target="_blank" class="btn ghost">📡 Packet Logs</a>
+            <a href="/api/status" target="_blank" class="btn ghost">📊 Status JSON</a>
+            <a href="/static/hotfix/android/version.manifest" target="_blank" class="btn ghost">📦 Hotfix Manifest</a>
         </div>
     </div>
 
@@ -193,13 +194,19 @@
     <div id="toast" class="toast"></div>
 
     <script>
-        let state = { theme: 'noel', players: [] };
-        let catalog = { items: [], heroes: [], frames: [], skins: [] };
+        let state = { players: [], hotfix: {} };
+        let catalog = { items: [], heroes: [], frames: [] };
         let spriteFrames = {};
         let spriteImages = {};
         let selectedPlayerId = null;
         let selectedPlayer = null;
         let activeTab = 'currency';
+
+        function formatVipLabel(v) {
+            v = Number(v || 0);
+            if (v >= 16) return 'SVIP ' + (v - 15) + ' (VIP ' + v + ')';
+            return 'VIP ' + v;
+        }
 
         function toast(msg, isErr) {
             const el = document.getElementById('toast');
@@ -207,7 +214,7 @@
             el.style.background = isErr ? '#da3633' : '#238636';
             el.style.display = 'block';
             clearTimeout(el._t);
-            el._t = setTimeout(() => { el.style.display = 'none'; }, 2800);
+            el._t = setTimeout(() => { el.style.display = 'none'; }, 3200);
         }
 
         function loadSpriteImage(name) {
@@ -228,7 +235,6 @@
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 if (f.r) {
-                    // Cocos2d rotated=true means stored w/h are swapped in atlas (height x width), rotated 90deg CW
                     ctx.save();
                     ctx.translate(canvas.width / 2, canvas.height / 2);
                     ctx.rotate(-Math.PI / 2);
@@ -249,28 +255,30 @@
             state = stRes;
             catalog = catRes;
             spriteFrames = spRes;
-            updateThemeButtons();
+            renderServerSummary();
             renderAccounts();
             if (state.players.length && !selectedPlayerId) {
                 selectPlayer(state.players[0].player_id);
             }
         }
 
-        function updateThemeButtons() {
-            document.getElementById('btn-theme-noel').className = 'btn ' + (state.theme === 'noel' ? 'active' : 'ghost');
-            document.getElementById('btn-theme-default').className = 'btn ' + (state.theme === 'default' ? 'active' : 'ghost');
+        function renderServerSummary() {
+            const hf = state.hotfix || {};
+            const el = document.getElementById('server-summary');
+            el.textContent = `Online: ${state.onlineCount || 0} · Tài khoản: ${(state.players || []).length} · Tướng: ${state.heroCount || 0} · Hotfix Upstream: ${hf.upstreamVersion || '?'} | GitHub Mirror: ${hf.mirrorVersion || 'chưa sync'}`;
         }
 
-        async function setTheme(theme) {
-            const res = await fetch('/api/theme', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ theme })
-            }).then(r => r.json());
+        async function syncAllServer() {
+            toast('Đang đồng bộ ConfigData & kiểm tra GitHub Hotfix Mirror...');
+            const res = await fetch('/api/gm/sync-all', { method: 'POST' }).then(r => r.json());
             if (res.ok) {
-                state.theme = res.theme;
-                updateThemeButtons();
-                toast('Đã đổi Theme Server sang: ' + (res.theme === 'noel' ? 'Giáng Sinh (Noel)' : 'Mặc định'));
+                const cfg = res.config || {};
+                const hf = res.hotfixStatus || {};
+                state.hotfix = hf;
+                renderServerSummary();
+                toast(`Đồng bộ xong! Tướng: ${cfg.heroCount || '?'}, Upstream: ${hf.upstreamVersion || '?'}, Mirror: ${hf.mirrorVersion || '?'}`);
+            } else {
+                toast('Lỗi đồng bộ: ' + (res.configError || res.error || 'Unknown'), true);
             }
         }
 
@@ -290,7 +298,7 @@
                         <span class="badge ${p.online ? 'on' : 'off'}">${p.online ? 'ONLINE' : 'OFF'}</span>
                     </div>
                     <div style="font-size:12px;color:var(--muted);margin-top:3px">
-                        ID: ${p.player_id} · UID: ${p.uid} · Lv.${p.lv} · VIP ${p.vip}
+                        ID: ${p.player_id} · UID: ${p.uid} · Lv.${p.lv} · ${formatVipLabel(p.vip)}
                     </div>
                 </div>
             `).join('') || '<div style="color:var(--muted);padding:10px">Không có tài khoản nào.</div>';
@@ -328,16 +336,16 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
                     <div>
                         <h2 style="margin:0">${p.team_name} <span style="font-size:13px;color:var(--muted)">(ID: ${p.player_id} | UID: ${p.uid})</span></h2>
-                        <div style="font-size:13px;color:var(--muted)">Lv.${p.lv} · VIP ${p.vip} · Khung hiện tại: #${p.frame_id} · Tướng: ${p.hero_ids.length}</div>
+                        <div style="font-size:13px;color:var(--muted)">Lv.${p.lv} · ${formatVipLabel(p.vip)} · Khung: #${p.frame_id} · Tướng: ${p.hero_ids.length}</div>
                     </div>
                     <button class="btn ghost" onclick="selectPlayer('${p.player_id.replace(/'/g, "\\'")}')">🔄 Làm mới</button>
                 </div>
 
                 <div class="tabs">
-                    <button class="btn ${activeTab==='currency'?'':'ghost'}" onclick="activeTab='currency';renderDetail()">💰 Tiền tệ & Chỉ số</button>
-                    <button class="btn ${activeTab==='items'?'':'ghost'}" onclick="activeTab='items';renderDetail()">🎒 Thêm Item (Tên VN + Ảnh)</button>
-                    <button class="btn ${activeTab==='heroes'?'':'ghost'}" onclick="activeTab='heroes';renderDetail()">🥷 Thêm Tướng (Ninja)</button>
-                    <button class="btn ${activeTab==='cosmetics'?'':'ghost'}" onclick="activeTab='cosmetics';renderDetail()">❄️ Khung & Skin Noel</button>
+                    <button class="btn ${activeTab==='currency'?'':'ghost'}" onclick="activeTab='currency';renderDetail()">💰 Tiền tệ &amp; SVIP</button>
+                    <button class="btn ${activeTab==='items'?'':'ghost'}" onclick="activeTab='items';renderDetail()">🎒 Thêm Item</button>
+                    <button class="btn ${activeTab==='heroes'?'':'ghost'}" onclick="activeTab='heroes';renderDetail()">🥷 Thêm Tướng</button>
+                    <button class="btn ${activeTab==='system'?'':'ghost'}" onclick="activeTab='system';renderDetail()">🖼️ Khung &amp; Đồng bộ</button>
                 </div>
 
                 <div id="tab-content"></div>
@@ -346,7 +354,7 @@
             if (activeTab === 'currency') renderCurrencyTab(p);
             else if (activeTab === 'items') renderItemsTab();
             else if (activeTab === 'heroes') renderHeroesTab(p);
-            else if (activeTab === 'cosmetics') renderCosmeticsTab(p);
+            else if (activeTab === 'system') renderSystemTab(p);
         }
 
         function renderCurrencyTab(p) {
@@ -354,7 +362,7 @@
                 { key: 'stone', label: '💎 Kim Cương (Stone)', val: p.stone, quick: [10000, 100000, 1000000] },
                 { key: 'gold', label: '🪙 Vàng (Gold)', val: p.gold, quick: [1000000, 10000000, 100000000] },
                 { key: 'sp', label: '⚡ Thể Lực (SP)', val: p.sp, quick: [500, 5000] },
-                { key: 'vip_exp', label: '👑 VIP EXP', val: p.vip_exp, quick: [1000, 50000, 500000] },
+                { key: 'vip_exp', label: '👑 VIP EXP (' + formatVipLabel(p.vip) + ')', val: p.vip_exp, quick: [10000, 500000, 1000000] },
                 { key: 'exp', label: '⭐ EXP Đội', val: p.exp, quick: [10000, 100000] },
                 { key: 'arena_point', label: '⚔️ Điểm Đấu Trường', val: p.arena_point, quick: [5000, 50000] },
                 { key: 'ninja_point', label: '🧭 Điểm Viễn Chinh', val: p.ninja_point, quick: [5000, 50000] },
@@ -362,6 +370,12 @@
                 { key: 'dark_arena_point', label: '🌑 Điểm Ám Bộ', val: p.dark_arena_point, quick: [5000, 50000] }
             ];
             document.getElementById('tab-content').innerHTML = `
+                <div class="stat-box" style="margin-bottom:12px">
+                    <div class="stat-label" style="margin-bottom:6px">👑 Đặt nhanh cấp VIP / SVIP (hiện tại: <strong>${formatVipLabel(p.vip)}</strong>)</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        ${[10,13,15,16,17,18,19,20].map(v => `<button class="btn ${v>=16?'gold':'ghost'}" style="padding:5px 10px;font-size:12px" onclick="gmGive({action:'set_vip',vip_lv:${v}})">${v>=16?'SVIP '+(v-15):'VIP '+v}</button>`).join('')}
+                    </div>
+                </div>
                 <div class="stats-grid">
                     ${fields.map(f => `
                         <div class="stat-box">
@@ -415,7 +429,7 @@
         function renderHeroesTab(p) {
             document.getElementById('tab-content').innerHTML = `
                 <div style="display:flex;gap:8px;align-items:center">
-                    <input id="hero-search" type="text" placeholder="Tìm Ninja theo tên hoặc ID (vd: Rin, Sasuke, Naruto, 10650)..." style="flex:1" oninput="filterHeroes()" />
+                    <input id="hero-search" type="text" placeholder="Tìm Ninja theo tên hoặc ID (vd: Kinshiki, Sasuke, Naruto, 11070)..." style="flex:1" oninput="filterHeroes()" />
                 </div>
                 <div id="hero-grid" class="catalog-grid"></div>
             `;
@@ -446,33 +460,27 @@
             grid.querySelectorAll('canvas[data-frame]').forEach(c => drawFrameToCanvas(c, c.getAttribute('data-frame')));
         }
 
-        function renderCosmeticsTab(p) {
-            const hasRinSkin = (p.unlocked_skins || []).includes('rin_christmas');
+        function renderSystemTab(p) {
+            const hf = state.hotfix || {};
             document.getElementById('tab-content').innerHTML = `
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
                     <div class="stat-box">
-                        <h3 style="margin-bottom:8px">❄️ Skin Nohara Rin — Giáng Sinh</h3>
-                        <p style="font-size:13px;color:var(--muted);margin:0 0 10px 0">
-                            Trạng thái: <strong style="color:${hasRinSkin?'#3fb950':'#f85149'}">${hasRinSkin ? 'ĐÃ MỞ KHÓA' : 'CHƯA CÓ'}</strong>
-                        </p>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap">
-                            <button class="btn green" onclick="gmGive({action:'skin',skin_id:'rin_christmas',enable:true,equip:true})">🎁 Mở khóa & Trang bị cho Rin</button>
-                            <button class="btn red" onclick="gmGive({action:'skin',skin_id:'rin_christmas',enable:false})">Gỡ Skin</button>
-                        </div>
+                        <h3 style="margin-bottom:8px">🖼️ Khung Avatar</h3>
+                        <div style="font-size:13px;margin-bottom:10px">Khung hiện tại: <strong>#${p.frame_id}</strong></div>
+                        <select id="frame-select" onchange="if(this.value!=='')gmGive({action:'frame',frame_id:Number(this.value)})">
+                            <option value="">-- Chọn khung --</option>
+                            ${catalog.frames.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}
+                        </select>
                     </div>
                     <div class="stat-box">
-                        <h3 style="margin-bottom:8px">🖼️ Khung Avatar (Tuyết Hoa 2.0 #812)</h3>
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-                            <img src="/gm-sprites/ice_wing_frame.png" width="48" height="48" style="border-radius:6px;background:#161b22;border:1px solid #30363d" />
-                            <div style="font-size:13px">Khung hiện tại: <strong>#${p.frame_id}</strong></div>
+                        <h3 style="margin-bottom:8px">🔄 Đồng bộ Server Chính &amp; GitHub</h3>
+                        <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">
+                            Upstream Version: <strong>${hf.upstreamVersion || 'N/A'}</strong><br/>
+                            GitHub Mirror (${hf.branch || 'hotfix-mirror'}): <strong>${hf.mirrorVersion || 'Chưa sync'}</strong><br/>
+                            Nguồn phục vụ gần nhất: <strong>${hf.lastSource || 'N/A'}</strong><br/>
+                            Trigger: <strong>${hf.lastTriggerStatus || 'N/A'}</strong>
                         </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap">
-                            <button class="btn gold" onclick="gmGive({action:'frame',frame_id:812})">❄️ Đeo Khung Tuyết Hoa 2.0 (812)</button>
-                            <select id="frame-select" onchange="if(this.value!=='')gmGive({action:'frame',frame_id:Number(this.value)})">
-                                <option value="">-- Chọn khung khác --</option>
-                                ${catalog.frames.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}
-                            </select>
-                        </div>
+                        <button class="btn green" onclick="syncAllServer()">🔄 Đồng bộ ngay</button>
                     </div>
                 </div>
             `;

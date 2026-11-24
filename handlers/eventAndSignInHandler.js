@@ -87,16 +87,20 @@ const EventAndSignInHandler = {
                 var hasLatestExchange = false;
                 var rewardPattern10 = "1," + latestSoulId + ",10";
                 var rewardPattern50 = "1," + latestSoulId + ",50";
+                var hasLatestSpinEx = false;
                 for (var ei = 0; ei < exchangeGroup.length; ei++) {
                     var ev = exchangeGroup[ei];
-                    if (ev && (ev.items === rewardPattern10 || ev.items === rewardPattern50)) {
+                    if (!ev) continue;
+                    if (Number(ev.kind) === 190 && (ev.items === rewardPattern10 || ev.items === rewardPattern50)) {
                         hasLatestExchange = true;
-                        break;
+                    }
+                    if (Number(ev.kind) === 210 && (ev.items === rewardPattern10 || ev.items === rewardPattern50)) {
+                        hasLatestSpinEx = true;
                     }
                 }
+                var cleanHeroName = String(latestEntry.name || ("Hero " + latestEntry.heroId)).replace(/\s*\(Souls\)\s*$/i, "").replace(/^Hồn\s+/i, "");
                 if (!hasLatestExchange) {
                     var baseId = 15900000 + latestSoulId * 10;
-                    var cleanHeroName = String(latestEntry.name || ("Hero " + latestEntry.heroId)).replace(/\s*\(Souls\)\s*$/i, "").replace(/^Hồn\s+/i, "");
                     exchangeGroup.unshift(
                         {
                             id: baseId + 1,
@@ -135,6 +139,82 @@ const EventAndSignInHandler = {
                             is_global: 0
                         }
                     );
+                }
+                if (!hasLatestSpinEx) {
+                    var spinBaseId = 15950000 + latestSoulId * 10;
+                    exchangeGroup.unshift(
+                        {
+                            id: spinBaseId + 1,
+                            title: "",
+                            content: "10 Shukaku Gaara (Souls)",
+                            types: 15,
+                            kind: 210,
+                            conditions: "99999;0;1,20850,10",
+                            platforms: "",
+                            daily: 1,
+                            enable: 1,
+                            from_time: 1704038401,
+                            to_time: 1924963199,
+                            items: rewardPattern10,
+                            create_time: 0,
+                            sort: 210,
+                            date_type: 1,
+                            is_global: 0
+                        },
+                        {
+                            id: spinBaseId + 2,
+                            title: "",
+                            content: "50 Shukaku Gaara (Souls)",
+                            types: 15,
+                            kind: 210,
+                            conditions: "99999;0;1,20850,50",
+                            platforms: "",
+                            daily: 1,
+                            enable: 1,
+                            from_time: 1704038401,
+                            to_time: 1924963199,
+                            items: rewardPattern50,
+                            create_time: 0,
+                            sort: 210,
+                            date_type: 1,
+                            is_global: 0
+                        }
+                    );
+                }
+                // Auto-include any new quality-6 red secret scrolls (30601..30699) into Scroll Exchange (kind 110)
+                if (typeof Config !== "undefined" && Config.equip) {
+                    var existingScrolls = {};
+                    for (var sci = 0; sci < exchangeGroup.length; sci++) {
+                        if (exchangeGroup[sci] && Number(exchangeGroup[sci].kind) === 110) {
+                            existingScrolls[String(exchangeGroup[sci].items || "")] = true;
+                        }
+                    }
+                    for (var eqId = 30601; eqId <= 30699; eqId++) {
+                        var eqCfg = Config.equip[eqId];
+                        if (!eqCfg || Number(eqCfg.quality || 0) < 6) continue;
+                        var scrollReward = "2," + eqId + ",1";
+                        if (!existingScrolls[scrollReward]) {
+                            existingScrolls[scrollReward] = true;
+                            exchangeGroup.push({
+                                id: 15014000 + eqId,
+                                title: "",
+                                content: "100 Golden Key",
+                                types: 15,
+                                kind: 110,
+                                conditions: "99999;0;1,10430,100",
+                                platforms: "",
+                                daily: 1,
+                                enable: 1,
+                                from_time: 1704038401,
+                                to_time: 1924963199,
+                                items: scrollReward,
+                                create_time: 0,
+                                sort: 110,
+                                date_type: 1,
+                                is_global: 0
+                            });
+                        }
+                    }
                 }
             }
         }

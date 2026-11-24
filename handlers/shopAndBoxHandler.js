@@ -333,6 +333,10 @@ const ShopAndBoxHandler = {
                 9001: 6, 13001: 7, 16001: 9, 9051: 10
             };
 
+            if (goods2Id === 21001 && curBuyCount >= 5) {
+                return respond({}, { code: 1, msg: "Đã đạt giới hạn 5 lần mua lượt XS 3v3 hôm nay!" }), true;
+            }
+
             if (!this.canDeductCurrency(costPriceType, costPrice)) {
                 return respond({}, { code: 1, msg: "Không đủ tiền tệ!" }), true;
             }
@@ -389,6 +393,10 @@ const ShopAndBoxHandler = {
                 // Buy Cross Dark Arena fight attempts (ID_CS_SHADOW_BUY)
                 this.data.cross_dark_fight_count = 0;
                 this.data.cross_dark_last_fight_time = 0;
+            } else if (goods2Id === 21001) {
+                // Buy XS 3v3 fight attempts (+1 attempt, max 5 buys/day)
+                this.data.cross_3v3_fight_count = Math.max(0, Number(this.data.cross_3v3_fight_count || 0) - 1);
+                this.data.cross_3v3_last_fight_time = 0;
             }
 
             queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());

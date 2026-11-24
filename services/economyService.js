@@ -320,20 +320,45 @@ const EconomyService = {
         if (queuePush) queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
     },
 
+    syncVipLevelFromExp: function(queuePush) {
+        let vLv = Math.max(0, Number(this.data.vip_lv || 0));
+        let vipExp = Math.max(0, Number(this.data.vip_exp || 0));
+        const prevLv = vLv;
+        if (typeof Config !== "undefined" && Config.vipLevel) {
+            // Config.vipLevel[lv].upg_vip_exp is the per-level EXP needed to advance from lv -> lv+1 (up to lv 20 = SVIP 5)
+            while (vLv < 20 && Config.vipLevel[vLv]) {
+                const req = Number(Config.vipLevel[vLv].upg_vip_exp || 0);
+                if (req <= 0) {
+                    vLv++;
+                } else if (vipExp >= req) {
+                    vipExp -= req;
+                    vLv++;
+                } else {
+                    break;
+                }
+            }
+        }
+        if (vLv >= 20) {
+            vLv = 20;
+            vipExp = 0;
+        }
+        this.data.vip_lv = vLv;
+        this.data.vip_exp = vipExp;
+        if (vLv >= 5 && Number(this.data.had_vip5_gift || 0) === 0) this.data.had_vip5_gift = 1;
+        if (vLv >= 9 && Number(this.data.had_vip9_gift || 0) === 0) this.data.had_vip9_gift = 1;
+        if (vLv >= 11 && Number(this.data.had_vip11_gift || 0) === 0) this.data.had_vip11_gift = 1;
+        if (vLv >= 13 && Number(this.data.had_vip13_gift || 0) === 0) this.data.had_vip13_gift = 1;
+        if (vLv !== prevLv && queuePush) {
+            queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
+        }
+        return vLv;
+    },
+
     addVipExp: function(vipAdd, queuePush) {
         vipAdd = Number(vipAdd || 0);
         if (vipAdd <= 0) return;
         this.data.vip_exp = Number(this.data.vip_exp || 0) + vipAdd;
-        let vLv = Number(this.data.vip_lv || 0);
-        if (typeof Config !== "undefined" && Config.vipLevel) {
-            for (const vk in Config.vipLevel) {
-                const vCfg = Config.vipLevel[vk];
-                if (vCfg && Number(vCfg.upg_vip_exp) >= 0 && this.data.vip_exp >= Number(vCfg.upg_vip_exp)) {
-                    if (Number(vCfg.vip) > vLv) vLv = Number(vCfg.vip);
-                }
-            }
-        }
-        this.data.vip_lv = vLv;
+        this.syncVipLevelFromExp();
         if (queuePush) queuePush(SVRCMD.PlayerAttr, this.buildPlayerAttrPayload());
     },
 

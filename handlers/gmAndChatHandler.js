@@ -52,6 +52,53 @@ const globalLanterns = [
 let globalChatSeq = 100;
 
 const { syncConfigFromUpstream } = require("../config/configLoader");
+const battleSimulator = require("../services/battleSimulator");
+
+const pendingFriendlyInvites = new Map();
+let friendlyInviteSeq = 1;
+
+function getFriendlyDateKey() {
+    return new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function getFriendlyMatchCount(pData) {
+    if (!pData) return 0;
+    const today = getFriendlyDateKey();
+    if (pData.friendly_match_day !== today) {
+        pData.friendly_match_day = today;
+        pData.friendly_match_count = 0;
+    }
+    return Number(pData.friendly_match_count || 0);
+}
+
+function findOnlineSessionByNumericId(selfSession, targetUid) {
+    const sockets = selfSession && selfSession._connectedSockets;
+    if (!sockets) return null;
+    for (const sock of sockets) {
+        const sess = sock && sock._session;
+        if (!sess || !sess.data || typeof sess.getNumericId !== "function") continue;
+        if (Number(sess.getNumericId()) === Number(targetUid)) {
+            return sess;
+        }
+    }
+    return null;
+}
+
+function getArenaDefensePayloads(session) {
+    const raw = (session.data && (session.data.arena_def_heros || session.data.arena_lineup)) || "";
+    const owned = (session.data && session.data.heros) || {};
+    let ids = [];
+    if (typeof raw === "string" && raw.trim()) {
+        ids = raw.split(",").map(Number).filter(n => n > 0 && owned[n]);
+    } else if (Array.isArray(raw)) {
+        ids = raw.map(Number).filter(n => n > 0 && owned[n]);
+    }
+    if (ids.length === 0) {
+        ids = Object.keys(owned).map(Number).filter(n => n > 0).slice(0, 5);
+    }
+    if (ids.length === 0) ids = [10010];
+    return ids.slice(0, 5).map(hid => session.computeHeroPayload(hid));
+}
 
 function createSystemChatMessage(session, sysReply, chatType) {
     var sysChatObj = {
@@ -318,8 +365,116 @@ const GmAndChatHandler = {
 
         // Battle replays: no stored fight data -> clean error instead of client crash
         if (["GetChatFightData", "GroupFightHistoryInfo", "CsGroupFightHistoryInfo", "CrossArenaFightHistoryInfo",
-            "CrossDarkArenaFightHistoryInfo", "PlunderHistoryInfo"].indexOf(cmd) >= 0) {
+            "CrossDarkArenaFightHistoryInfo", "Cross3v3ArenaFightHistoryInfo", "PlunderHistoryInfo"].indexOf(cmd) >= 0) {
             respond({}, noFight);
+            return true;
+        }
+
+        // Giao hữu cùng server (ChatHeroPopup -> FriendlyMatch ["invite", targetId] / ["accept"|"decline", inviteId], 5 trận/ngày)
+        if (cmd === "FriendlyMatch") {
+            const action = String((params && params[0]) || "");
+            const myUid = this.getNumericId();
+            const myName = this.data.team_name || "Nhẫn Giả";
+
+            if (action === "invite") {
+                const targetUid = Number((params && params[1]) || 0);
+                if (!targetUid || targetUid === myUid) {
+                    respond({ id: 0, state: "failed", message: "Không thể tự mời chính mình đánh giao hữu." });
+                    return true;
+                }
+                if (getFriendlyMatchCount(this.data) >= 5) {
+                    respond({ id: 0, state: "failed", message: "Bạn đã hết 5 lượt giao hữu hôm nay." });
+                    return true;
+                }
+                const targetSess = findOnlineSessionByNumericId(this, targetUid);
+                if (!targetSess || !targetSess.data) {
+                    respond({ id: 0, state: "failed", message: "Người chơi hiện không online hoặc không cùng server." });
+                    return true;
+                }
+                if (getFriendlyMatchCount(targetSess.data) >= 5) {
+                    respond({ id: 0, state: "failed", message: "Đối thủ đã hết 5 lượt giao hữu hôm nay." });
+                    return true;
+                }
+
+                const inviteId = "fm_" + (friendlyInviteSeq++) + "_" + Date.now();
+                const invObj = {
+                    id: inviteId,
+                    fromUid: myUid,
+                    fromName: myName,
+                    fromSess: this,
+                    toUid: targetUid,
+                    toSess: targetSess,
+                    timer: null
+                };
+                invObj.timer = setTimeout(() => {
+                    if (!pendingFriendlyInvites.has(inviteId)) return;
+                    pendingFriendlyInvites.delete(inviteId);
+                    try { invObj.fromSess.sendPacket("FriendlyMatch", { id: inviteId, state: "expired" }); } catch (_) { }
+                    try { invObj.toSess.sendPacket("FriendlyMatch", { id: inviteId, state: "expired" }); } catch (_) { }
+                }, 30000);
+                if (invObj.timer.unref) invObj.timer.unref();
+                pendingFriendlyInvites.set(inviteId, invObj);
+
+                try {
+                    targetSess.sendPacket("FriendlyMatch", {
+                        id: inviteId,
+                        state: "invite",
+                        name: myName,
+                        expiresIn: 30
+                    });
+                } catch (_) { }
+                respond({ id: inviteId, state: "sent" });
+                return true;
+            }
+
+            const inviteId = String((params && params[1]) || "");
+            const inv = pendingFriendlyInvites.get(inviteId);
+            if (!inv) {
+                respond({ id: inviteId, state: "expired" });
+                return true;
+            }
+            if (inv.timer) clearTimeout(inv.timer);
+            pendingFriendlyInvites.delete(inviteId);
+
+            if (action === "decline") {
+                try { inv.fromSess.sendPacket("FriendlyMatch", { id: inviteId, state: "declined" }); } catch (_) { }
+                respond({ id: inviteId, state: "declined" });
+                return true;
+            }
+
+            if (action === "accept") {
+                if (getFriendlyMatchCount(inv.fromSess.data) >= 5 || getFriendlyMatchCount(inv.toSess.data) >= 5) {
+                    const failPkt = { id: inviteId, state: "failed", message: "Một trong hai người chơi đã hết 5 lượt giao hữu hôm nay." };
+                    try { inv.fromSess.sendPacket("FriendlyMatch", failPkt); } catch (_) { }
+                    respond(failPkt);
+                    return true;
+                }
+                inv.fromSess.data.friendly_match_count = getFriendlyMatchCount(inv.fromSess.data) + 1;
+                inv.toSess.data.friendly_match_count = getFriendlyMatchCount(inv.toSess.data) + 1;
+                inv.fromSess.save();
+                inv.toSess.save();
+
+                const atkPayloads = getArenaDefensePayloads(inv.fromSess);
+                const defPayloads = getArenaDefensePayloads(inv.toSess);
+                const seed = Math.floor(Math.random() * 900000) + 100000;
+                const sim = battleSimulator.simulateBattleFromHeroes(atkPayloads, defPayloads, seed);
+                const historyObj = {
+                    id: Date.now(),
+                    atk_id: inv.fromUid,
+                    atk_name: inv.fromSess.data.team_name || "Nhẫn Giả",
+                    atk_lv: Number(inv.fromSess.data.team_lv || 1),
+                    def_id: inv.toUid,
+                    def_name: inv.toSess.data.team_name || "Nhẫn Giả",
+                    def_lv: Number(inv.toSess.data.team_lv || 1),
+                    is_atk_win: sim.isWin ? 1 : 2,
+                    fight_data: JSON.stringify(sim.replay)
+                };
+                try { inv.fromSess.sendPacket("FriendlyMatch", { id: inviteId, state: "battle", history: historyObj }); } catch (_) { }
+                respond({ id: inviteId, state: "battle", history: historyObj });
+                return true;
+            }
+
+            respond({ id: inviteId, state: "failed", message: "Thao tác giao hữu không hợp lệ." });
             return true;
         }
 

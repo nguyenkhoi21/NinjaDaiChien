@@ -1258,7 +1258,7 @@ const HeroHandler = {
                 var nextSlot = slot + 1;
                 var nextId = 1000 + nextSlot * 100 + 1;
                 if (curCfg && curCfg.adv_id && String(curCfg.adv_id) !== "0") {
-                    var advIds = String(curCfg.adv_id).split(";").map(Number).filter(function(x) { return x > 0; });
+                    var advIds = String(curCfg.adv_id).split(";").map(Number).filter(function (x) { return x > 0; });
                     var advWeights = curCfg.adv_weight ? String(curCfg.adv_weight).split(";").map(Number) : [];
                     if (advIds.length > 0) {
                         var totalW = 0;
@@ -1292,47 +1292,117 @@ const HeroHandler = {
 
             var dropItemId = 50010;
             var dropType = 1;
-            if (slot >= 3) {
+            var dropAmt = 1;
+            var rolledBoxId = 96000 + slot * 100 + 1;
+
+            if (curCfg && curCfg.chapter_id && typeof Config !== "undefined" && Config.chapter_box && Config.chapter_box[curCfg.chapter_id] && Config.box_drop) {
+                var scBoxMap = Config.chapter_box[curCfg.chapter_id];
+                var scBoxKeys = Object.keys(scBoxMap);
+                if (scBoxKeys.length > 0) {
+                    var scBoxId = Number(scBoxMap[scBoxKeys[0]].box_id || scBoxKeys[0]);
+                    var scDropMap = Config.box_drop[scBoxId];
+                    if (scDropMap) {
+                        var scValidDrops = [];
+                        var scTotalWeight = 0;
+                        for (var sdk in scDropMap) {
+                            var sdr = scDropMap[sdk];
+                            if (!sdr) continue;
+                            var sdt = Number(sdr.type || 1);
+                            var sdId = Number(sdr.item_id || 0);
+                            if (sdt === 2 && (!Config.equip || !Config.equip[sdId])) continue;
+                            if (sdt === 1 && (!Config.item || !Config.item[sdId])) continue;
+                            var sw = Math.max(1, Number(sdr.weight || 1));
+                            scTotalWeight += sw;
+                            scValidDrops.push({ drop: sdr, weight: sw });
+                        }
+                        if (scValidDrops.length > 0) {
+                            var rollD = Math.random() * scTotalWeight;
+                            var chosenDrop = scValidDrops[scValidDrops.length - 1].drop;
+                            for (var sdi = 0; sdi < scValidDrops.length; sdi++) {
+                                rollD -= scValidDrops[sdi].weight;
+                                if (rollD <= 0) {
+                                    chosenDrop = scValidDrops[sdi].drop;
+                                    break;
+                                }
+                            }
+                            rolledBoxId = scBoxId;
+                            dropType = Number(chosenDrop.type || 1);
+                            dropItemId = Number(chosenDrop.item_id || 50010);
+                            dropAmt = Math.max(1, Number(chosenDrop.amount || 1));
+                        }
+                    }
+                }
+            } else if (slot >= 3) {
                 dropItemId = 30101 + Math.floor(Math.random() * 8);
                 dropType = 2;
-                this.addSecretEquip(dropItemId, 1, queuePush);
-            } else {
-                this.changeItemAmount(dropItemId, 1, queuePush);
             }
+
+            if (dropType === 2) {
+                if (dropItemId >= 30000) {
+                    this.addSecretEquip(dropItemId, dropAmt, queuePush);
+                } else {
+                    this.changeEquipAmount(dropItemId, dropAmt, queuePush);
+                }
+            } else if (dropType === 3) {
+                this.addGold(dropAmt, queuePush);
+            } else if (dropType === 4) {
+                this.addStone(dropAmt, queuePush);
+            } else {
+                this.changeItemAmount(dropItemId, dropAmt, queuePush);
+            }
+
             this.data.total_school_count = Number(this.data.total_school_count || 0) + 1;
             this.data.daily_counts["PLAYER_DIALY_TASK_2"] = Number(this.data.daily_counts["PLAYER_DIALY_TASK_2"] || 0) + 1;
             this.save();
             respond({
                 playerSchool: this.data.player_school,
-                items: [{ box_id: 96000 + slot * 100 + 1, type: dropType, item_id: dropItemId, amount: 1 }]
+                items: [{ box_id: rolledBoxId, type: dropType, item_id: dropItemId, amount: dropAmt }]
             });
             return true;
         }
 
         if (cmd === SVRCMD.WearSecret || cmd === SVRCMD.WearGem) {
-            if (params && params[0] === 'swap') {
+            if (params && (params[0] === 'swap' || params[0] === 'swap_gems' || params[0] === 'swap_equip')) {
+                var swapAction = String(params[0]);
                 var heroA = Number(params[1]);
                 var heroB = Number(params[2]);
                 var reqId = String(params[3] || "");
-                if (this.data.secrets) {
-                    for (var si = 0; si < this.data.secrets.length; si++) {
-                        var sObj = this.data.secrets[si];
-                        var sPos = Number(sObj.pos || 0);
-                        if (sPos >= 1 && sPos <= 6 && Number(sObj.status) === 1) {
-                            if (Number(sObj.hero_id) === heroA) {
-                                sObj.hero_id = heroB;
-                                queuePush(SVRCMD.Secret, { secret: sObj });
-                            } else if (Number(sObj.hero_id) === heroB) {
-                                sObj.hero_id = heroA;
-                                queuePush(SVRCMD.Secret, { secret: sObj });
+
+                if (swapAction === 'swap' || swapAction === 'swap_gems') {
+                    var minPos = (swapAction === 'swap_gems') ? 101 : 1;
+                    var maxPos = (swapAction === 'swap_gems') ? 103 : 6;
+                    if (this.data.secrets) {
+                        for (var si = 0; si < this.data.secrets.length; si++) {
+                            var sObj = this.data.secrets[si];
+                            var sPos = Number(sObj.pos || 0);
+                            if (sPos >= minPos && sPos <= maxPos && Number(sObj.status) === 1) {
+                                if (Number(sObj.hero_id) === heroA) {
+                                    sObj.hero_id = heroB;
+                                    queuePush(SVRCMD.Secret, { secret: sObj });
+                                } else if (Number(sObj.hero_id) === heroB) {
+                                    sObj.hero_id = heroA;
+                                    queuePush(SVRCMD.Secret, { secret: sObj });
+                                }
                             }
                         }
                     }
+                } else if (swapAction === 'swap_equip') {
+                    var hObjA = this.data.heros && this.data.heros[heroA];
+                    var hObjB = this.data.heros && this.data.heros[heroB];
+                    if (hObjA && hObjB) {
+                        for (var nti = 1; nti <= 6; nti++) {
+                            var ntKey = "ninja_tool_" + nti;
+                            var tmpTool = Number(hObjA[ntKey] || 0);
+                            hObjA[ntKey] = Number(hObjB[ntKey] || 0);
+                            hObjB[ntKey] = tmpTool;
+                        }
+                    }
                 }
-                if (heroA > 0) queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroA) });
-                if (heroB > 0) queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroB) });
+
+                if (heroA > 0 && this.data.heros && this.data.heros[heroA]) queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroA) });
+                if (heroB > 0 && this.data.heros && this.data.heros[heroB]) queuePush(SVRCMD.Hero, { hero: this.computeHeroPayload(heroB) });
                 this.save();
-                respond({ swap_id: reqId, from: heroA, to: heroB, replayed: false });
+                respond({ swap_id: reqId, from: heroA, to: heroB, action: swapAction, replayed: false });
                 return true;
             }
 

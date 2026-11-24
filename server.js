@@ -75,6 +75,7 @@ const connectedSockets = new Set();
 const OfflineServer = Object.assign(
     {
         enabled: false,
+        _connectedSockets: connectedSockets,
         saveKey: "SHINOBI_OFFLINE_SAVE_V10",
         onlineEvents: onlineEvents,
         onlineLucky: onlineLucky,
@@ -130,6 +131,7 @@ const OfflineServer = Object.assign(
             if (!this.data.tower_heros) this.data.tower_heros = {};
             if (!this.data.noend_towers) this.data.noend_towers = {};
             if (!this.data.next_secret_id) this.data.next_secret_id = 1;
+            if (typeof this.syncVipLevelFromExp === "function") this.syncVipLevelFromExp();
         },
 
         save: function () { },
@@ -771,8 +773,11 @@ const server = http.createServer((req, res) => {
             <p><b>Port:</b> ${PORT} (WebSocket: <code>ws://YOUR_IP:${PORT}</code>)</p>
             <p><b>Online Players:</b> ${connectedSockets.size}</p>
             <p><b>Registered Players:</b> ${Object.keys(playerDb).length}</p>
-            <p><b>Theme hiện tại:</b> ${getServerSettings().theme}</p>
-            <p><a href="/gm" style="display:inline-block;padding:10px 16px;background:#2f81f7;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;">🛠️ Mở GM Panel &amp; Chọn Theme (/gm)</a></p>
+            <p>
+                <a href="/gm" style="display:inline-block;padding:10px 16px;background:#2f81f7;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;">🛠️ Mở GM Panel &amp; Quản Lý Server (/gm)</a>
+                <a href="/logs" style="display:inline-block;padding:10px 14px;background:#21262d;color:#fff;text-decoration:none;border-radius:6px;margin-left:8px;">📡 Packet Logs (/logs)</a>
+                <a href="/api/status" style="display:inline-block;padding:10px 14px;background:#21262d;color:#fff;text-decoration:none;border-radius:6px;margin-left:8px;">📊 Status JSON (/api/status)</a>
+            </p>
             <hr style="border-color:#444;" />
             <p>Ready for connections from Ninja Rebirth APK & IPA!</p>
         </body>
