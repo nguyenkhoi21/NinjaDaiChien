@@ -1,0 +1,66 @@
+name: Sync Android Hotfix Mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force re-download and re-verify all delta files
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: '0 */6 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-hotfix-mirror
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main tools
+        uses: actions/checkout@v4
+        with:
+          path: tool
+          ref: main
+
+      - name: Prepare hotfix-mirror branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git ls-remote --exit-code --heads "$REMOTE_URL" hotfix-mirror >/dev/null 2>&1; then
+            git clone --branch hotfix-mirror --single-branch --depth 1 "$REMOTE_URL" mirror
+          else
+            git init mirror
+            git -C mirror checkout --orphan hotfix-mirror
+            git -C mirror remote add origin "$REMOTE_URL"
+          fi
+
+      - name: Sync delta hotfix from upstream
+        env:
+          FORCE_SYNC: ${{ inputs.force }}
+        run: |
+          ARGS="--base tool/scripts/base_project.manifest --mirror-dir mirror --repo ${{ github.repository }} --branch hotfix-mirror"
+          if [ "${FORCE_SYNC}" = "true" ]; then
+            ARGS="${ARGS} --force"
+          fi
+          python3 tool/scripts/sync_hotfix.py ${ARGS}
+
+      - name: Commit and push hotfix-mirror atomically
+        run: |
+          if [ -z "$(git -C mirror status --porcelain)" ]; then
+            echo "No hotfix changes to commit."
+            exit 0
+          fi
+          VER=$(python3 -c 'import json; print(json.load(open("mirror/hotfix/android/version.manifest"))["version"])')
+          git -C mirror config user.name "github-actions[bot]"
+          git -C mirror config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C mirror add -A
+          git -C mirror commit -m "chore(hotfix): sync android hotfix v${VER}"
+          git -C mirror push origin HEAD:hotfix-mirror

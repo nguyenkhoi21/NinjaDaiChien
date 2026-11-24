@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const zlib = require('zlib');
 const crypto = require('crypto');
 
@@ -385,6 +386,9 @@ function loadConfigData() {
 }
 
 const UPSTREAM_CONFIG_URL = process.env.UPSTREAM_CONFIG_URL || 'http://103.90.227.124:8080/static/hotfix/android/res/ConfigData.json';
+const GITHUB_REPO = process.env.GITHUB_REPO || 'nguyenkhoi21/NinjaDaiChien';
+const GITHUB_MIRROR_BRANCH = process.env.GITHUB_MIRROR_BRANCH || 'hotfix-mirror';
+const MIRROR_CONFIG_URL = process.env.MIRROR_CONFIG_URL || `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_MIRROR_BRANCH}/hotfix/android/res/ConfigData.json`;
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
 let _ddsKeyTable = null;
 let _lastUpstreamSyncAt = 0;
@@ -465,54 +469,75 @@ function syncConfigFromUpstream(options, callback) {
         }
     };
 
-    const targetUrl = options.url || UPSTREAM_CONFIG_URL;
-    const req = http.get(targetUrl, { timeout: 15000 }, (res) => {
-        if (res.statusCode !== 200) {
-            res.resume();
-            return finishAll(new Error(`Upstream ConfigData HTTP ${res.statusCode}`), null);
+    const candidateUrls = options.url ? [options.url] : [UPSTREAM_CONFIG_URL, MIRROR_CONFIG_URL];
+    const tryFetchConfig = (idx) => {
+        if (idx >= candidateUrls.length) {
+            return finishAll(new Error('All ConfigData sources failed'), null);
         }
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => {
-            try {
-                const rawBuf = Buffer.concat(chunks);
-                const plainBuf = decryptDdsBuffer(rawBuf);
-                const plainStr = plainBuf.toString('utf8');
-                const parsed = JSON.parse(plainStr);
-                if (!parsed || !Array.isArray(parsed.hero) || !Array.isArray(parsed.item)) {
-                    throw new Error('Upstream ConfigData JSON missing hero/item tables');
+        const targetUrl = candidateUrls[idx];
+        const transport = targetUrl.startsWith('https://') ? https : http;
+        const req = transport.get(targetUrl, { timeout: 15000 }, (res) => {
+            if (res.statusCode !== 200) {
+                res.resume();
+                if (idx + 1 < candidateUrls.length) {
+                    console.warn(`[-] ConfigData HTTP ${res.statusCode} from ${targetUrl}, trying fallback...`);
+                    return tryFetchConfig(idx + 1);
                 }
-                const configPath = path.join(__dirname, 'ConfigData.json');
-                const newHash = crypto.createHash('md5').update(plainBuf).digest('hex');
-                let oldHash = '';
-                if (fs.existsSync(configPath)) {
-                    oldHash = crypto.createHash('md5').update(fs.readFileSync(configPath)).digest('hex');
-                }
-                _lastUpstreamSyncAt = Date.now();
-                let updated = false;
-                if (newHash !== oldHash) {
-                    fs.writeFileSync(configPath, plainStr, 'utf8');
-                    loadConfigData();
-                    updated = true;
-                    console.log(`[+] Synced upstream ConfigData.json (Heroes: ${Object.keys(Config.hero).length}, Items: ${Object.keys(Config.item).length})`);
-                }
-                finishAll(null, {
-                    skipped: false,
-                    updated: updated,
-                    heroCount: Object.keys(Config.hero).length,
-                    itemCount: Object.keys(Config.item).length
-                });
-            } catch (err) {
-                finishAll(err, null);
+                return finishAll(new Error(`Upstream ConfigData HTTP ${res.statusCode}`), null);
             }
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                try {
+                    const rawBuf = Buffer.concat(chunks);
+                    const plainBuf = decryptDdsBuffer(rawBuf);
+                    const plainStr = plainBuf.toString('utf8');
+                    const parsed = JSON.parse(plainStr);
+                    if (!parsed || !Array.isArray(parsed.hero) || !Array.isArray(parsed.item)) {
+                        throw new Error('Upstream ConfigData JSON missing hero/item tables');
+                    }
+                    const configPath = path.join(__dirname, 'ConfigData.json');
+                    const newHash = crypto.createHash('md5').update(plainBuf).digest('hex');
+                    let oldHash = '';
+                    if (fs.existsSync(configPath)) {
+                        oldHash = crypto.createHash('md5').update(fs.readFileSync(configPath)).digest('hex');
+                    }
+                    _lastUpstreamSyncAt = Date.now();
+                    let updated = false;
+                    if (newHash !== oldHash) {
+                        fs.writeFileSync(configPath, plainStr, 'utf8');
+                        loadConfigData();
+                        updated = true;
+                        console.log(`[+] Synced ConfigData.json from ${targetUrl} (Heroes: ${Object.keys(Config.hero).length}, Items: ${Object.keys(Config.item).length})`);
+                    }
+                    finishAll(null, {
+                        skipped: false,
+                        updated: updated,
+                        source: targetUrl,
+                        heroCount: Object.keys(Config.hero).length,
+                        itemCount: Object.keys(Config.item).length
+                    });
+                } catch (err) {
+                    if (idx + 1 < candidateUrls.length) {
+                        console.warn(`[-] ConfigData parse failed from ${targetUrl}: ${err.message}, trying fallback...`);
+                        return tryFetchConfig(idx + 1);
+                    }
+                    finishAll(err, null);
+                }
+            });
         });
-    });
-    req.on('timeout', () => {
-        req.destroy(new Error('Upstream ConfigData request timed out'));
-    });
-    req.on('error', (err) => {
-        finishAll(err, null);
-    });
+        req.on('timeout', () => {
+            req.destroy(new Error('Upstream ConfigData request timed out'));
+        });
+        req.on('error', (err) => {
+            if (idx + 1 < candidateUrls.length) {
+                console.warn(`[-] ConfigData fetch failed from ${targetUrl}: ${err.message}, trying fallback...`);
+                return tryFetchConfig(idx + 1);
+            }
+            finishAll(err, null);
+        });
+    };
+    tryFetchConfig(0);
 }
 
 loadConfigData();
