@@ -30,7 +30,10 @@ const {
     saveDb,
     scheduleSaveDb,
     getOrAssignUid,
-    findPlayerByIdOrUid
+    findPlayerByIdOrUid,
+    onSystemRow,
+    saveSystemRow,
+    deleteSystemRow
 } = require('./db/database');
 
 // Ring buffer for live in-memory logs (visible via /logs and /api/logs)
@@ -62,9 +65,6 @@ const hotfixMirrorService = require('./services/hotfixMirrorService');
 const upstreamEventSyncService = require('./services/upstreamEventSyncService');
 
 const PORT = process.env.PORT || 8088;
-
-// Load all players on startup from Supabase if configured
-loadDbFromSupabase();
 
 // Periodic auto-save every 10 seconds
 setInterval(saveDb, 10000);
@@ -284,6 +284,12 @@ const OfflineServer = Object.assign(
     GuildHandler,
     GmAndChatHandler
 );
+
+upstreamEventSyncService.attachDatabaseSync(
+    { onSystemRow, saveSystemRow, deleteSystemRow },
+    require.main === module ? OfflineServer : null
+);
+loadDbFromSupabase();
 
 // Create an instance for a specific player session
 class PlayerSession {

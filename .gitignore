@@ -1,3 +1,4 @@
 /.env
 /data/synced_events.json
 /data/scheduler_state.json
+/data/upstream_sync_config.json

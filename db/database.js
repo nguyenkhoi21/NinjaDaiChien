@@ -16,14 +16,94 @@ if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+const SYS_ROW_PREFIX = '__sys_';
 let playerDb = {};
+const systemRows = {};
+const systemRowListeners = {};
+
 if (fs.existsSync(DATA_FILE)) {
     try {
-        playerDb = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+        const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+        for (const k of Object.keys(loaded || {})) {
+            if (String(k).startsWith(SYS_ROW_PREFIX)) {
+                systemRows[k] = loaded[k];
+            } else {
+                playerDb[k] = loaded[k];
+            }
+        }
         console.log(`[+] Loaded ${Object.keys(playerDb).length} players from local cache ${DATA_FILE}`);
     } catch (e) {
         console.error('[-] Error reading players.json, starting fresh:', e.message);
     }
+}
+
+function notifySystemRow(rowId, dataObj) {
+    const list = systemRowListeners[rowId];
+    if (!Array.isArray(list)) return;
+    for (const fn of list) {
+        try {
+            fn(dataObj);
+        } catch (err) {
+            console.error(`[-] System row listener error (${rowId}):`, err.message);
+        }
+    }
+}
+
+/** Register a listener for a reserved system row synced via Supabase. */
+function onSystemRow(rowId, listener) {
+    if (!rowId || typeof listener !== 'function') return;
+    if (!systemRowListeners[rowId]) systemRowListeners[rowId] = [];
+    systemRowListeners[rowId].push(listener);
+    if (systemRows[rowId]) {
+        try {
+            listener(systemRows[rowId]);
+        } catch (err) {
+            console.error(`[-] System row replay error (${rowId}):`, err.message);
+        }
+    }
+}
+
+/** Persist a reserved system record to memory and Supabase without placing it in playerDb. */
+function saveSystemRow(rowId, dataObj) {
+    const pid = String(rowId || '');
+    if (!pid.startsWith(SYS_ROW_PREFIX)) {
+        return Promise.reject(new Error('Invalid system row id'));
+    }
+    systemRows[pid] = dataObj;
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        return Promise.resolve({ ok: true, cloud: false });
+    }
+    return new Promise((resolve) => {
+        supabaseRequest('/rest/v1/players', 'POST', [{
+            player_id: pid,
+            data: dataObj,
+            updated_at: new Date().toISOString()
+        }], (err, res, status) => {
+            const ok = !err && (status === 201 || status === 200 || status === 204);
+            if (!ok) {
+                console.error(`[-] Failed to sync system row ${pid} to Supabase (status ${status}):`, err ? err.message : res);
+            }
+            resolve({ ok: true, cloud: ok });
+        });
+    });
+}
+
+/** Delete a reserved system record from memory and Supabase. */
+function deleteSystemRow(rowId) {
+    const pid = String(rowId || '');
+    delete systemRows[pid];
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        return Promise.resolve({ ok: true, cloud: false });
+    }
+    return new Promise((resolve) => {
+        supabaseRequest('/rest/v1/players?player_id=eq.' + encodeURIComponent(pid), 'DELETE', null, (err, res, status) => {
+            const ok = !err && (status === 200 || status === 204);
+            if (!ok) {
+                console.error(`[-] Failed to delete system row ${pid} in Supabase (status ${status}):`, err ? err.message : res);
+            }
+            resolve({ ok: true, cloud: ok });
+        });
+    });
 }
 
 function saveLocalDb() {
@@ -94,8 +174,14 @@ function loadDbFromSupabase() {
             let count = 0;
             for (const row of rows) {
                 if (row.player_id && row.data) {
-                    playerDb[String(row.player_id)] = row.data;
-                    count++;
+                    const pid = String(row.player_id);
+                    if (pid.startsWith(SYS_ROW_PREFIX)) {
+                        systemRows[pid] = row.data;
+                        notifySystemRow(pid, row.data);
+                    } else {
+                        playerDb[pid] = row.data;
+                        count++;
+                    }
                 }
             }
             console.log(`[+] Successfully synchronized ${count} players from Supabase!`);
@@ -201,5 +287,8 @@ module.exports = {
     saveDb,
     scheduleSaveDb,
     getOrAssignUid,
-    findPlayerByIdOrUid
+    findPlayerByIdOrUid,
+    onSystemRow,
+    saveSystemRow,
+    deleteSystemRow
 };

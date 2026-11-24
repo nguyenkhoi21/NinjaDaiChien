@@ -25,8 +25,172 @@ const MIRROR_EVENTS_URL =
     process.env.MIRROR_EVENTS_URL ||
     `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_MIRROR_BRANCH}/hotfix/android/events.json`;
 const LOCAL_EVENTS_FILE = path.join(__dirname, '..', 'data', 'synced_events.json');
+const LOCAL_CONFIG_FILE = path.join(__dirname, '..', 'data', 'upstream_sync_config.json');
+const SYS_ROW_ID = '__sys_upstream_sync__';
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+
+let dbRef = null;
+let savedConfig = { account: '', password: '', serverId: 1, updatedAt: null };
+
+if (fs.existsSync(LOCAL_CONFIG_FILE)) {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(LOCAL_CONFIG_FILE, 'utf8'));
+        if (parsed && typeof parsed === 'object') {
+            savedConfig = {
+                account: String(parsed.account || '').trim(),
+                password: String(parsed.password || ''),
+                serverId: Math.max(1, Number(parsed.serverId || 1)),
+                updatedAt: parsed.updatedAt || null
+            };
+        }
+    } catch (err) {
+        console.warn('[-] Failed to read upstream_sync_config.json:', err.message);
+    }
+}
+
+function writeLocalConfig(cfg) {
+    try {
+        const dir = path.dirname(LOCAL_CONFIG_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(LOCAL_CONFIG_FILE, JSON.stringify(cfg), 'utf8');
+        return true;
+    } catch (err) {
+        console.warn('[-] Failed to write upstream_sync_config.json:', err.message);
+        return false;
+    }
+}
+
+/** Mask an account identifier for safe display without exposing credentials. */
+function maskAccount(acc) {
+    const s = String(acc || '').trim();
+    if (!s) return '';
+    if (s.length <= 3) return s[0] + '**';
+    return s.slice(0, 2) + '***' + s.slice(-1);
+}
+
+/** Resolve active upstream credentials with precedence: one-shot > GM saved > ENV. */
+function getEffectiveCredentials(options = {}) {
+    const fallbackServerId = Math.max(
+        1,
+        Number(options.serverId || savedConfig.serverId || UPSTREAM_SYNC_SERVER_ID || 1)
+    );
+    const optAcc = String(options.account || '').trim();
+    const optPass = String(options.password || '');
+    if (optAcc && optPass) {
+        return { account: optAcc, password: optPass, serverId: fallbackServerId, source: 'oneshot' };
+    }
+    if (savedConfig.account && savedConfig.password) {
+        return {
+            account: savedConfig.account,
+            password: savedConfig.password,
+            serverId: Math.max(1, Number(options.serverId || savedConfig.serverId || 1)),
+            source: 'gm'
+        };
+    }
+    if (UPSTREAM_SYNC_ACCOUNT && UPSTREAM_SYNC_PASSWORD) {
+        return {
+            account: UPSTREAM_SYNC_ACCOUNT,
+            password: UPSTREAM_SYNC_PASSWORD,
+            serverId: Math.max(1, Number(options.serverId || UPSTREAM_SYNC_SERVER_ID || 1)),
+            source: 'env'
+        };
+    }
+    return { account: '', password: '', serverId: fallbackServerId, source: 'none' };
+}
+
+/** Attach database listeners so GM-saved credentials restore cleanly from Supabase on boot. */
+function attachDatabaseSync(db, OfflineServer) {
+    dbRef = db;
+    if (!db || typeof db.onSystemRow !== 'function') return;
+    db.onSystemRow(SYS_ROW_ID, (rowData) => {
+        if (!rowData || typeof rowData !== 'object') return;
+        const acc = String(rowData.account || '').trim();
+        const pass = String(rowData.password || '');
+        if (!acc || !pass) return;
+        savedConfig = {
+            account: acc,
+            password: pass,
+            serverId: Math.max(1, Number(rowData.serverId || 1)),
+            updatedAt: rowData.updatedAt || null
+        };
+        writeLocalConfig(savedConfig);
+        if (OfflineServer && state.lastSource !== 'upstream-ws') {
+            syncEventsFromUpstream(OfflineServer, { reason: 'supabase-ready', force: true }).catch(() => {});
+        }
+    });
+}
+
+/** Save upstream sync credentials locally and to Supabase so they persist across restarts. */
+async function setUpstreamCredentials({ account, password, serverId }) {
+    const rawAcc = String(account || '').trim();
+    const rawPass = String(password || '');
+    const cleanAcc = rawAcc || savedConfig.account;
+    const reuseSavedPass = !rawPass && savedConfig.password && (!rawAcc || rawAcc === savedConfig.account);
+    const cleanPass = reuseSavedPass ? savedConfig.password : rawPass;
+
+    if (!cleanAcc) {
+        throw new Error('Vui lòng nhập tài khoản server chính');
+    }
+    if (!cleanPass) {
+        throw new Error('Vui lòng nhập mật khẩu tài khoản server chính');
+    }
+
+    savedConfig = {
+        account: cleanAcc,
+        password: cleanPass,
+        serverId: Math.max(1, Number(serverId || savedConfig.serverId || 1)),
+        updatedAt: new Date().toISOString()
+    };
+    writeLocalConfig(savedConfig);
+
+    let cloudRes = { cloud: false };
+    if (dbRef && typeof dbRef.saveSystemRow === 'function') {
+        cloudRes = await dbRef.saveSystemRow(SYS_ROW_ID, savedConfig);
+    }
+
+    return {
+        ok: true,
+        cloudSaved: Boolean(cloudRes && cloudRes.cloud),
+        status: getEventSyncStatus()
+    };
+}
+
+/** Clear GM-saved upstream credentials from memory, local file, and Supabase. */
+async function clearUpstreamCredentials() {
+    savedConfig = { account: '', password: '', serverId: 1, updatedAt: null };
+    try {
+        if (fs.existsSync(LOCAL_CONFIG_FILE)) fs.unlinkSync(LOCAL_CONFIG_FILE);
+    } catch (err) {
+        console.warn('[-] Failed to delete upstream_sync_config.json:', err.message);
+    }
+    if (dbRef && typeof dbRef.deleteSystemRow === 'function') {
+        await dbRef.deleteSystemRow(SYS_ROW_ID);
+    }
+    return { ok: true, status: getEventSyncStatus() };
+}
+
+/** Fetch live upstream server list for the GM selector, falling back to S1..S6 offline. */
+async function fetchUpstreamServerList(authUrl) {
+    const fallback = [1, 2, 3, 4, 5, 6].map((id) => ({ id, name: 'S' + id }));
+    try {
+        const srvResp = await httpPostJson(`${authUrl || UPSTREAM_AUTH_URL}?api=get_server_list`, [], 6000);
+        const servers = Array.isArray(srvResp && srvResp.servers) ? srvResp.servers : [];
+        if (servers.length === 0) return fallback;
+        return servers
+            .map((s) => {
+                const id = Number(s.server_id || s.id || 0);
+                if (!id) return null;
+                return {
+                    id,
+                    name: String(s.name || s.server_name || ('S' + id))
+                };
+            })
+            .filter(Boolean);
+    } catch (_) {
+        return fallback;
+    }
+}
 
 const state = {
     lastSyncAt: 0,
@@ -508,9 +672,10 @@ async function syncEventsFromUpstream(OfflineServer, options = {}) {
     }
 
     const authUrl = options.authUrl || UPSTREAM_AUTH_URL;
-    const account = options.account || UPSTREAM_SYNC_ACCOUNT;
-    const password = options.password || UPSTREAM_SYNC_PASSWORD;
-    const serverId = Number(options.serverId || UPSTREAM_SYNC_SERVER_ID || 1);
+    const creds = getEffectiveCredentials(options);
+    const account = creds.account;
+    const password = creds.password;
+    const serverId = creds.serverId;
 
     if (!account || !password) {
         // Still try mirror fallback if configured
@@ -525,7 +690,7 @@ async function syncEventsFromUpstream(OfflineServer, options = {}) {
                 return { ok: true, source: 'github-mirror', status: state.lastStatus, eventGroups: state.eventGroups };
             }
         } catch (_) {}
-        state.lastStatus = 'skipped (UPSTREAM_SYNC_ACCOUNT / UPSTREAM_SYNC_PASSWORD not set)';
+        state.lastStatus = 'chưa cấu hình tài khoản đồng bộ (nhập trên /gm hoặc ENV)';
         return { ok: false, skipped: true, status: state.lastStatus };
     }
 
@@ -602,9 +767,12 @@ async function syncEventsFromUpstream(OfflineServer, options = {}) {
 }
 
 function getEventSyncStatus() {
+    const creds = getEffectiveCredentials();
     return {
-        configured: Boolean(UPSTREAM_SYNC_ACCOUNT && UPSTREAM_SYNC_PASSWORD),
-        serverId: UPSTREAM_SYNC_SERVER_ID,
+        configured: Boolean(creds.account && creds.password),
+        credentialSource: creds.source,
+        accountMasked: creds.account ? maskAccount(creds.account) : '',
+        serverId: creds.serverId,
         lastSyncAt: state.lastSyncAt,
         lastSource: state.lastSource,
         lastStatus: state.lastStatus,
@@ -619,5 +787,9 @@ module.exports = {
     syncEventsFromUpstream,
     loadCachedOrMirrorEvents,
     applySyncedEvents,
-    getEventSyncStatus
+    getEventSyncStatus,
+    attachDatabaseSync,
+    setUpstreamCredentials,
+    clearUpstreamCredentials,
+    fetchUpstreamServerList
 };

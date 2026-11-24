@@ -147,6 +147,91 @@ function handleGmWebRequest(req, res, ctx) {
         return true;
     }
 
+    // 3b. Upstream Server List for GM event sync selector
+    if (urlPath === '/api/gm/upstream-servers' && req.method === 'GET') {
+        upstreamEventSyncService.fetchUpstreamServerList()
+            .then((servers) => sendJson(res, { ok: true, servers }))
+            .catch(() => sendJson(res, { ok: true, servers: [1, 2, 3, 4, 5, 6].map(id => ({ id, name: 'S' + id })) }));
+        return true;
+    }
+
+    // 3c. Configure & trigger upstream official server event sync from GM panel
+    if (urlPath === '/api/gm/upstream-sync' && req.method === 'POST') {
+        readJsonBody(req, async (err, body) => {
+            if (err) return sendJson(res, { ok: false, error: err.message }, 400);
+            try {
+                const mode = String(body.mode || (body.clear ? 'clear' : (body.save === false ? 'oneshot' : 'save_and_sync')));
+
+                if (mode === 'clear') {
+                    await upstreamEventSyncService.clearUpstreamCredentials();
+                    return sendJson(res, {
+                        ok: true,
+                        msg: 'Đã xóa tài khoản kéo Event đã lưu.',
+                        eventSyncStatus: upstreamEventSyncService.getEventSyncStatus()
+                    });
+                }
+
+                const serverId = Math.max(1, Number(body.server_id || body.serverId || 1));
+
+                if (mode === 'oneshot') {
+                    const acc = String(body.account || '').trim();
+                    const pass = String(body.password || '');
+                    const syncOpts = { serverId, reason: 'gm-oneshot', force: true };
+                    if (acc || pass) {
+                        if (!acc || !pass) {
+                            return sendJson(res, {
+                                ok: false,
+                                error: 'Kéo 1 lần cần nhập đủ cả Tài khoản và Mật khẩu (hoặc để trống cả hai để dùng tài khoản đã lưu).',
+                                eventSyncStatus: upstreamEventSyncService.getEventSyncStatus()
+                            }, 400);
+                        }
+                        syncOpts.account = acc;
+                        syncOpts.password = pass;
+                    }
+                    const syncRes = await upstreamEventSyncService.syncEventsFromUpstream(OfflineServer, syncOpts);
+                    return sendJson(res, {
+                        ok: Boolean(syncRes && syncRes.ok),
+                        saved: false,
+                        msg: syncRes && syncRes.ok
+                            ? `Đã kéo 1 lần (không lưu): ${syncRes.status}`
+                            : `Kéo thất bại: ${(syncRes && (syncRes.error || syncRes.status)) || 'Unknown'}`,
+                        error: syncRes && !syncRes.ok ? (syncRes.error || syncRes.status) : null,
+                        eventSync: syncRes,
+                        eventSyncStatus: upstreamEventSyncService.getEventSyncStatus()
+                    });
+                }
+
+                const saveRes = await upstreamEventSyncService.setUpstreamCredentials({
+                    account: body.account,
+                    password: body.password,
+                    serverId
+                });
+                const syncRes = await upstreamEventSyncService.syncEventsFromUpstream(OfflineServer, {
+                    reason: 'gm-save-sync',
+                    force: true
+                });
+                return sendJson(res, {
+                    ok: Boolean(syncRes && syncRes.ok),
+                    saved: true,
+                    cloudSaved: Boolean(saveRes && saveRes.cloudSaved),
+                    msg: syncRes && syncRes.ok
+                        ? `Đã lưu${saveRes.cloudSaved ? ' (Supabase)' : ''} & đồng bộ xong: ${syncRes.status}`
+                        : `Đã lưu tài khoản nhưng kéo Event lỗi: ${(syncRes && (syncRes.error || syncRes.status)) || 'Unknown'}`,
+                    error: syncRes && !syncRes.ok ? (syncRes.error || syncRes.status) : null,
+                    eventSync: syncRes,
+                    eventSyncStatus: upstreamEventSyncService.getEventSyncStatus()
+                });
+            } catch (e) {
+                return sendJson(res, {
+                    ok: false,
+                    error: e.message,
+                    eventSyncStatus: upstreamEventSyncService.getEventSyncStatus()
+                }, 400);
+            }
+        });
+        return true;
+    }
+
     // 4. GM Catalog (Items, Heroes, Frames)
     if (urlPath === '/api/gm/catalog') {
         sendJson(res, buildCatalog());
