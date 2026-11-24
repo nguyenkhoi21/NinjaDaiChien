@@ -172,7 +172,7 @@
             <div style="font-size:13px;color:var(--muted)" id="server-summary">Đang tải trạng thái server...</div>
         </div>
         <div class="nav-links">
-            <button class="btn green" onclick="syncAllServer()">🔄 Đồng Bộ Config &amp; Hotfix</button>
+            <button class="btn green" onclick="syncAllServer()">🔄 Đồng Bộ Config, Event &amp; Hotfix</button>
             <a href="/logs" target="_blank" class="btn ghost">📡 Packet Logs</a>
             <a href="/api/status" target="_blank" class="btn ghost">📊 Status JSON</a>
             <a href="/static/hotfix/android/version.manifest" target="_blank" class="btn ghost">📦 Hotfix Manifest</a>
@@ -269,14 +269,17 @@
         }
 
         async function syncAllServer() {
-            toast('Đang đồng bộ ConfigData & kiểm tra GitHub Hotfix Mirror...');
+            toast('Đang đồng bộ ConfigData, Event (WS) & kiểm tra GitHub Hotfix Mirror...');
             const res = await fetch('/api/gm/sync-all', { method: 'POST' }).then(r => r.json());
             if (res.ok) {
                 const cfg = res.config || {};
                 const hf = res.hotfixStatus || {};
+                const ev = res.eventSyncStatus || {};
                 state.hotfix = hf;
+                state.eventSync = ev;
                 renderServerSummary();
-                toast(`Đồng bộ xong! Tướng: ${cfg.heroCount || '?'}, Upstream: ${hf.upstreamVersion || '?'}, Mirror: ${hf.mirrorVersion || '?'}`);
+                if (activeTab === 'system' && selectedPlayer) renderSystemTab(selectedPlayer);
+                toast(`Đồng bộ xong! Tướng: ${cfg.heroCount || '?'}, Hotfix: ${hf.upstreamVersion || '?'}, Event: ${ev.lastStatus || '?'}`);
             } else {
                 toast('Lỗi đồng bộ: ' + (res.configError || res.error || 'Unknown'), true);
             }
@@ -462,6 +465,7 @@
 
         function renderSystemTab(p) {
             const hf = state.hotfix || {};
+            const ev = state.eventSync || {};
             document.getElementById('tab-content').innerHTML = `
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
                     <div class="stat-box">
@@ -477,8 +481,10 @@
                         <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">
                             Upstream Version: <strong>${hf.upstreamVersion || 'N/A'}</strong><br/>
                             GitHub Mirror (${hf.branch || 'hotfix-mirror'}): <strong>${hf.mirrorVersion || 'Chưa sync'}</strong><br/>
-                            Nguồn phục vụ gần nhất: <strong>${hf.lastSource || 'N/A'}</strong><br/>
-                            Trigger: <strong>${hf.lastTriggerStatus || 'N/A'}</strong>
+                            Nguồn Hotfix: <strong>${hf.lastSource || 'N/A'}</strong><br/>
+                            Tài khoản kéo Event: <strong>${ev.configured ? 'Đã cấu hình (S' + (ev.serverId || 1) + ')' : 'Chưa cấu hình (cần UPSTREAM_SYNC_ACCOUNT/PASSWORD)'}</strong><br/>
+                            Trạng thái Event: <strong>${ev.lastStatus || 'N/A'}</strong> (${ev.eventGroups || 0} nhóm)<br/>
+                            Backup Event trên GitHub: <strong>${ev.mirrorBackedUp ? 'Có' : 'Chưa'}</strong>
                         </div>
                         <button class="btn green" onclick="syncAllServer()">🔄 Đồng bộ ngay</button>
                     </div>

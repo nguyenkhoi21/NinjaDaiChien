@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { syncConfigFromUpstream } = require('../config/configLoader');
 const hotfixMirrorService = require('../services/hotfixMirrorService');
+const upstreamEventSyncService = require('../services/upstreamEventSyncService');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SPRITES_DIR = path.join(PUBLIC_DIR, 'sprites');
@@ -119,20 +120,25 @@ function handleGmWebRequest(req, res, ctx) {
         return true;
     }
 
-    // 3. GM Sync All (ConfigData + OnlineEvents/Roulette + GitHub Hotfix Mirror)
+    // 3. GM Sync All (ConfigData + Upstream Events/Roulette + GitHub Hotfix Mirror)
     if (urlPath === '/api/gm/sync-all' && req.method === 'POST') {
         syncConfigFromUpstream({ force: true }, async (syncErr, syncRes) => {
             try {
                 if (typeof OfflineServer.syncOnlineLuckyWithLatestHero === 'function') {
                     OfflineServer.syncOnlineLuckyWithLatestHero();
                 }
-                const hotfixRes = await hotfixMirrorService.checkAndSyncIfNeeded('gm-panel', false).catch(e => ({ ok: false, error: e.message }));
+                const [hotfixRes, eventSyncRes] = await Promise.all([
+                    hotfixMirrorService.checkAndSyncIfNeeded('gm-panel', false).catch(e => ({ ok: false, error: e.message })),
+                    upstreamEventSyncService.syncEventsFromUpstream(OfflineServer, { reason: 'gm-panel', force: true }).catch(e => ({ ok: false, error: e.message }))
+                ]);
                 return sendJson(res, {
                     ok: !syncErr,
                     config: syncRes || null,
                     configError: syncErr ? syncErr.message : null,
                     hotfixCheck: hotfixRes,
-                    hotfixStatus: hotfixMirrorService.getHotfixStatus()
+                    hotfixStatus: hotfixMirrorService.getHotfixStatus(),
+                    eventSync: eventSyncRes,
+                    eventSyncStatus: upstreamEventSyncService.getEventSyncStatus()
                 });
             } catch (err) {
                 return sendJson(res, { ok: false, error: err.message }, 500);
@@ -174,6 +180,7 @@ function handleGmWebRequest(req, res, ctx) {
         sendJson(res, {
             onlineCount: onlineSet.size,
             hotfix: hotfixMirrorService.getHotfixStatus(),
+            eventSync: upstreamEventSyncService.getEventSyncStatus(),
             heroCount: typeof Config !== 'undefined' && Config.hero ? Object.keys(Config.hero).length : 0,
             itemCount: typeof Config !== 'undefined' && Config.item ? Object.keys(Config.item).length : 0,
             players

@@ -59,6 +59,7 @@ const { handleGmWebRequest } = require('./handlers/gmWebHandler');
 const { getServerSettings } = require('./config/serverSettings');
 const { startArenaRewardScheduler } = require('./services/arenaRewardService');
 const hotfixMirrorService = require('./services/hotfixMirrorService');
+const upstreamEventSyncService = require('./services/upstreamEventSyncService');
 
 const PORT = process.env.PORT || 8088;
 
@@ -519,6 +520,19 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (req.url === '/api/events/sync') {
+        upstreamEventSyncService.syncEventsFromUpstream(OfflineServer, { reason: 'manual-api', force: true })
+            .then((result) => {
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ ok: Boolean(result && result.ok), result, status: upstreamEventSyncService.getEventSyncStatus() }));
+            })
+            .catch((err) => {
+                res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ ok: false, error: err.message }));
+            });
+        return;
+    }
+
     if (req.url === '/status' || req.url === '/api/status') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({
@@ -529,7 +543,8 @@ const server = http.createServer((req, res) => {
             online_players: connectedSockets.size,
             registered_players: Object.keys(playerDb).length,
             uptime_seconds: Math.floor(process.uptime()),
-            hotfix: hotfixMirrorService.getHotfixStatus()
+            hotfix: hotfixMirrorService.getHotfixStatus(),
+            eventSync: upstreamEventSyncService.getEventSyncStatus()
         }));
         return;
     }
@@ -892,12 +907,14 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 if (require.main === module) {
+    upstreamEventSyncService.loadCachedOrMirrorEvents(OfflineServer);
     syncConfigFromUpstream({ reason: 'startup' }, (syncErr, syncRes) => {
         if (!syncErr && syncRes && syncRes.updated && typeof OfflineServer.syncOnlineLuckyWithLatestHero === 'function') {
             OfflineServer.syncOnlineLuckyWithLatestHero();
         }
     });
     hotfixMirrorService.checkAndSyncIfNeeded('startup').catch(() => {});
+    upstreamEventSyncService.syncEventsFromUpstream(OfflineServer, { reason: 'startup' }).catch(() => {});
     const upstreamSyncTimer = setInterval(() => {
         syncConfigFromUpstream({ reason: 'periodic' }, (syncErr, syncRes) => {
             if (!syncErr && syncRes && syncRes.updated && typeof OfflineServer.syncOnlineLuckyWithLatestHero === 'function') {
@@ -905,6 +922,7 @@ if (require.main === module) {
             }
         });
         hotfixMirrorService.checkAndSyncIfNeeded('periodic').catch(() => {});
+        upstreamEventSyncService.syncEventsFromUpstream(OfflineServer, { reason: 'periodic' }).catch(() => {});
     }, 60 * 60 * 1000);
     if (upstreamSyncTimer.unref) upstreamSyncTimer.unref();
 
