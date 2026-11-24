@@ -5429,14 +5429,15 @@ var Cross3v3View = BaseLayer.extend({
         var results = new cc.Node();
         results.setPosition(bulkX, positionY + size * .25);
         root.addChild(results, 9);
-        function quickWater(count, offset) {
-            var label = new cc.LabelTTF(count + " lần", "Arial", 14);
-            var control = new cc.MenuItemLabel(label, function () { draw(count); }, root);
-            control.setPosition(water.x + offset, 9);
+        function quickWater(count, side) {
+            var control = menuButton(count + " lần", 0, 21, function () { draw(count); });
+            var buttonWidth = Math.min(96, width * .13);
+            control.setScale(Math.min(buttonWidth / control.width, 38 / control.height));
+            control.setPosition(water.x + side * (buttonWidth / 2 + 5), 21);
             return control;
         }
-        var waterTen = quickWater(10, -33);
-        var waterHundred = quickWater(100, 33);
+        var waterTen = quickWater(10, -1);
+        var waterHundred = quickWater(100, 1);
         function setWaterControls(enabled) {
             water.setEnabled(enabled && remaining > 0);
             waterTen.setEnabled(enabled && remaining >= 10);
