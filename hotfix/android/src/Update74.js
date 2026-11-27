@@ -3856,36 +3856,108 @@ var Cross3v3View = BaseLayer.extend({
     }
 
     var LuanVoBracketView = BaseLayer.extend({
-        addRes: function () { this._super(res_cross_choose); },
+        ctor: function (resume) {
+            this._resumeAfterReplay = resume || null;
+            this._super();
+        },
+        addRes: function () { this._super(res_cross_choose.concat(["res/luan_vo/shinobi-duel.png","res/luan_vo/shinobiworld-logo.png","res/luan_vo/guild_panel.png","res/luan_vo/team_name_frame.png","res/luan_vo/tean_ban1.png","res/luan_vo/tean_ban2.png"])); },
 
         initLayer: function () {
             this._super();
             var self = this;
             var cx = WINSIZE.width / 2, cy = WINSIZE.height / 2;
+            var art = NumUnit.initImage(cx, cy, "res/luan_vo/shinobi-duel.png", this);
+            art.setScale(Math.max(WINSIZE.width / art.width, WINSIZE.height / art.height));
             var panel = new cc.DrawNode();
             this.addChild(panel);
             panel.drawRect(cc.p(0, 0), cc.p(WINSIZE.width, WINSIZE.height),
-                cc.color(6, 12, 22, 185), 0, cc.color(0, 0, 0, 0));
-            panel.drawRect(cc.p(18, 18), cc.p(WINSIZE.width - 18, WINSIZE.height - 18),
-                cc.color(21, 35, 53, 255), 2, cc.color(185, 145, 83, 255));
-            NumUnit.initBtnClose(WINSIZE.width - 43, WINSIZE.height - 43, this, this.onClose);
-            NumUnit.initLabelYellow(cx, WINSIZE.height - 51, this, 31, "Luận Võ");
+                cc.color(13, 12, 28, 93), 0, cc.color(0, 0, 0, 0));
+            var header = NumUnit.initImage(cx, WINSIZE.height - 39, "#panel_normal_title.png", this);
+            header.setScaleX(WINSIZE.width / header.width);
+            header.setScaleY(78 / header.height);
+            var logo = NumUnit.initImage(cx, WINSIZE.height - 39, "res/luan_vo/shinobiworld-logo.png", this);
+            logo.setScale(Math.min(300 / logo.width, 78 / logo.height));
+            var heading = NumUnit.initLabel(124, WINSIZE.height - 40, this, 18, "CÂY ĐẤU VÔ ĐỊCH", cc.color(255, 235, 204));
+            heading.setLocalZOrder(3);
+            NumUnit.initBtnClose(WINSIZE.width - 34, WINSIZE.height - 37, this, this.onClose);
+            this._zoom = 1;
+            this._zoomButtons = [
+                button(this, WINSIZE.width - 189, WINSIZE.height - 39, "−", function () { self.changeZoom(-.25); }),
+                button(this, WINSIZE.width - 116, WINSIZE.height - 39, "+", function () { self.changeZoom(.25); })
+            ];
+            this._zoomButtons.forEach(function (btn) { btn.setScale(.42); });
             this._bracketLayer = new cc.Node();
-            this.addChild(this._bracketLayer);
+            var mask = new cc.DrawNode();
+            mask.drawRect(cc.p(0, 62), cc.p(WINSIZE.width, WINSIZE.height - 79),
+                cc.color(255, 255, 255, 255), 0, cc.color(255, 255, 255, 255));
+            this._boardClip = new cc.ClippingNode(mask);
+            this._boardClip.addChild(this._bracketLayer);
+            this.addChild(this._boardClip, 1);
+            this._liveHeader = new cc.Node();
+            this.addChild(this._liveHeader, 4);
+            header.setLocalZOrder(2);
+            logo.setLocalZOrder(3);
+            this._zoomButtons.forEach(function (btn) { btn.setLocalZOrder(3); });
             this._status = NumUnit.initLabel(cx, cy, this, 23, "Đang tải sơ đồ Luận võ…");
+            this._status.setLocalZOrder(2);
             this._mode = "bracket";
             this._matchTargets = [];
             var touch = cc.EventListener.create({
                 event: cc.EventListener.TOUCH_ONE_BY_ONE,
                 swallowTouches: false,
-                onTouchBegan: function (event) {
-                    if (self._mode !== "bracket") return false;
-                    var point = self._bracketLayer.convertToNodeSpace(event.getLocation());
+                onTouchBegan: function (touch) {
+                    var point = touch.getLocation();
+                    if (self._mode === "room" && self._room && (self._room.phase === "draft" || self._room.phase === "packing")) {
+                        var local = self._bracketLayer.convertToNodeSpace(point);
+                        self._pressedHero = (self._heroTargets || []).filter(function (tile) {
+                            return Math.abs(tile.x - local.x) < (tile.width || tile.size) / 2 && Math.abs(tile.y - local.y) < tile.size / 2;
+                        })[0];
+                        if (self._pressedHero) { self._dragOrigin = point; self._dragged = false; return true; }
+                    }
+                    if (self._mode !== "bracket" || point.y < 62 || point.y > WINSIZE.height - 86) return false;
+                    self._dragOrigin = point;
+                    self._dragged = false;
+                    return true;
+                },
+                onTouchMoved: function (touch) {
+                    var delta = touch.getDelta();
+                    var point = touch.getLocation();
+                    if (Math.abs(point.x - self._dragOrigin.x) + Math.abs(point.y - self._dragOrigin.y) > 9) self._dragged = true;
+                    if (!self._dragged || self._mode !== "bracket") return;
+                    var layer = self._bracketLayer;
+                    self.positionBracket(layer.getPositionX() + delta.x, layer.getPositionY() + delta.y);
+                },
+                onTouchEnded: function (touch) {
+                    var pressed = self._pressedHero;
+                    self._pressedHero = null;
+                    if (pressed && pressed.prepId !== undefined && !self._dragged && self.canEditPreparation()) {
+                        self._prepHero = pressed.prepId;
+                        self.renderRoom();
+                        return;
+                    }
+                    if (pressed && pressed.filter !== undefined && !self._dragged && self._mode === "room" &&
+                        self._room.phase === "draft") {
+                        self._filter = pressed.filter;
+                        self._draftScroll = null;
+                        self.renderRoom();
+                        return;
+                    }
+                    if (pressed && !self._dragged && self._mode === "room" && self._room.draft &&
+                        self._room.draft.step === pressed.step && self._room.draft.available.indexOf(pressed.id) >= 0) {
+                        var current = self._selectedHeroes.indexOf(pressed.id);
+                        if (current >= 0) self._selectedHeroes.splice(current, 1);
+                        else if (self._selectedHeroes.length < self._room.draft.turn[2]) self._selectedHeroes.push(pressed.id);
+                        self.renderRoom();
+                        return;
+                    }
+                    if (self._dragged || self._mode !== "bracket") return;
+                    var location = touch.getLocation();
+                    if (location.y < 62 || location.y > WINSIZE.height - 79) return;
+                    var point = self._bracketLayer.convertToNodeSpace(location);
                     var found = self._matchTargets.filter(function (card) {
-                        return Math.abs(card.x - point.x) <= card.width / 2 && Math.abs(card.y - point.y) <= 18;
+                        return Math.abs(card.x - point.x) <= card.width / 2 && Math.abs(card.y - point.y) <= 19;
                     })[0];
                     if (found) self.openMatch(found.match);
-                    return Boolean(found);
                 }
             });
             cc.eventManager.addListener(touch, this);
@@ -3905,28 +3977,73 @@ var Cross3v3View = BaseLayer.extend({
                 if (!previous || action === "choose" || previous.draft && self._room.draft &&
                     previous.draft.step !== self._room.draft.step) self._selectedHeroes = [];
                 self._mode = "room";
-                self.renderRoom();
-                if (self._room.phase === "packing" && self._room.side >= 0 && !self._room.locked[self._room.side] && action !== "lock")
-                    self.requestRoom("lock");
-                else if (self._room.phase === "between" && self._room.side >= 0 && !self._room.ready[self._room.side] && action !== "ready")
+                var game = incoming.games[incoming.games.length - 1];
+                if (previous && game && incoming.games.length > previous.games.length &&
+                    !game.walkover && (incoming.side >= 0 || incoming.observer)) {
+                    self._heldReplay = game.game;
+                    self.closeExpiredPreparationEditor();
+                    self.showArenaLoading(false);
+                    self.replay(game.game);
+                    return;
+                }
+                if (self._heldReplay) return;
+                if (action === "state" && previous && previous.phase === "draft" && incoming.phase === "draft" &&
+                    previous.draft.step === incoming.draft.step && previous.draft.deadline === incoming.draft.deadline &&
+                    self._draftTimerLabel) {
+                    self._draftTimerLabel.setString(self.draftCaption(incoming));
+                } else if (action === "state" && previous && previous.phase === "packing" && incoming.phase === "packing" &&
+                    previous.deadline === incoming.deadline && String(previous.locked) === String(incoming.locked) &&
+                    self._prepTimerLabel) {
+                    self._prepTimerLabel.setString(self.preparationCaption(incoming));
+                } else self.renderRoom();
+                self.closeExpiredPreparationEditor();
+                if (!self._pendingReplay && self._room.phase === "between" && self._room.side >= 0 && !self._room.ready[self._room.side] && action !== "ready")
                     self.requestRoom("ready");
             }, this);
             EventDispatcher.shared().addListener("TournamentReplay", function (cmd, packet) {
-                if (!pkgReader.getPkgError(packet) && packet.data.history) self.playReplay(packet.data.history);
+                var request = self._pendingReplay;
+                self._pendingReplay = null;
+                if (request && self._activeMatch && request.matchId === self._activeMatch.id &&
+                    self._mode !== "bracket") {
+                    if (pkgReader.getPkgError(packet) || !packet.data || !packet.data.history) self.arenaReplayFailed();
+                    else self.playReplay(packet.data.history);
+                }
             }, this);
             this.schedule(function () {
-                if (self._mode === "room" && self._room.phase !== "done") self.requestRoom("state");
+                if (self._mode === "room" && self._room.phase !== "done" && !self._pendingReplay && !self._loadingArenaReplay) self.requestRoom("state");
+                if (self._mode === "detail" && self._activeMatch && self._activeMatch.waitingForReferee)
+                    Netty.shared().sendPackage("TournamentBracket", []);
             }, 1);
             EventDispatcher.shared().addListener("TournamentBracket", function (cmd, packet) {
                 if (pkgReader.getPkgError(packet)) {
                     self._status.setString("Không tải được sơ đồ Luận võ.");
                     return;
                 }
-                if (self._mode === "bracket") self.renderBracket(packet.data && packet.data.tournament);
+                var tournament = packet.data && packet.data.tournament;
+                self.updateLiveHeader(tournament && tournament.streamUrl);
+                if (self._mode === "detail" && tournament && self._activeMatch && self._activeMatch.waitingForReferee) {
+                    var active = self._activeMatch;
+                    var next = tournament.matches.filter(function (item) { return item.id === active.id; })[0];
+                    if (next && (!next.waitingForReferee || next.streamUrl !== active.streamUrl)) {
+                        self._activeMatch = next;
+                        self.renderDetail();
+                    }
+                }
+                if (self._mode !== "bracket") return;
+                self.renderBracket(tournament);
+                var resume = self._resumeAfterReplay;
+                self._resumeAfterReplay = null;
+                if (!resume || !tournament) return;
+                var match = tournament.matches.filter(function (item) { return item.id === resume.matchId; })[0];
+                if (!match) return;
+                self.openMatch(match);
+                if (resume.fromRoom && match.canEnter && match.winner < 0) self.requestRoom("join");
             }, this);
             button(this, cx, 40, "Cây đấu", function () {
                 self._mode = "bracket";
                 self._activeMatch = null;
+                self._heldReplay = null;
+                self._pendingReplay = null;
                 self._pendingRoom = null;
                 self._bracketLayer.removeAllChildren();
                 Netty.shared().sendPackage("TournamentBracket", []);
@@ -3934,7 +4051,63 @@ var Cross3v3View = BaseLayer.extend({
             Netty.shared().sendPackage("TournamentBracket", []);
         },
 
+        positionBracket: function (x, y) {
+            var z = this._zoom, w = WINSIZE.width, h = WINSIZE.height;
+            this._bracketLayer.setPosition(Math.max(w * (1 - z), Math.min(0, x)),
+                Math.max((h - 79) * (1 - z), Math.min(62 * (1 - z), y)));
+        },
+
+        changeZoom: function (amount) {
+            if (this._mode !== "bracket") return;
+            var old = this._zoom, layer = this._bracketLayer;
+            this._zoom = Math.max(1, Math.min(2, old + amount));
+            var ratio = this._zoom / old, x = WINSIZE.width / 2, y = WINSIZE.height / 2;
+            layer.setScale(this._zoom);
+            this.positionBracket(x - (x - layer.getPositionX()) * ratio, y - (y - layer.getPositionY()) * ratio);
+        },
+
+        showBracketChrome: function (visible) {
+            if (!visible) {
+                this._bracketLayer.setScale(1);
+                this._bracketLayer.setPosition(0, 0);
+            }
+            this._zoomButtons.forEach(function (btn) { btn.setVisible(visible); });
+        },
+
+        drawPanel: function (parent, x, y, w, h, fill, border) {
+            var node = new cc.DrawNode();
+            var points = [], r = Math.min(8, h / 4, w / 4);
+            [[1,1],[-1,1],[-1,-1],[1,-1]].forEach(function (corner, index) {
+                for (var i = 0; i <= 4; i++) {
+                    var angle = (index + i / 4) * Math.PI / 2;
+                    points.push(cc.p(x + corner[0] * (w / 2 - r) + Math.cos(angle) * r,
+                        y + corner[1] * (h / 2 - r) + Math.sin(angle) * r));
+                }
+            });
+            node.drawPoly(points, fill, .65, border);
+            parent.addChild(node);
+        },
+
+        drawSeries: function (layer, cx, y, names, score) {
+            var self = this;
+            var width = Math.min(300, WINSIZE.width * .3);
+            [0, 1].forEach(function (side) {
+                var x = cx + (side ? 1 : -1) * (width / 2 + 43);
+                var ink = side ? cc.color(232, 140, 130) : cc.color(139, 190, 245);
+                self.drawPanel(layer, x, y, width, 34, side ? cc.color(64, 38, 47, 255) : cc.color(32, 55, 84, 255), ink);
+                var caption = (side ? "ĐỎ  ·  " : "XANH  ·  ") + names[side];
+                if (caption.length > 35) caption = caption.slice(0, 32) + "…";
+                NumUnit.initLabel(x, y, layer, 16, caption, ink);
+            });
+            this.drawPanel(layer, cx, y, 72, 34, cc.color(45, 42, 41, 255), cc.color(191, 154, 92));
+            NumUnit.initLabelYellow(cx, y, layer, 22, score.join("–"));
+        },
+
         renderBracket: function (tournament) {
+            this._zoom = 1;
+            this._bracketLayer.setScale(1);
+            this._bracketLayer.setPosition(0, 0);
+            this.showBracketChrome(true);
             this._matchTargets = [];
             this._bracketLayer.removeAllChildren();
             this._status.setString(tournament ? "" : "Sơ đồ Luận võ chưa được công bố.");
@@ -3943,6 +4116,7 @@ var Cross3v3View = BaseLayer.extend({
             var top = WINSIZE.height - 107;
             var stepX = (WINSIZE.width - 38) / 9;
             var stepY = (top - 125) / 7;
+
             var positions = {};
             var columns = {};
             var layer = this._bracketLayer;
@@ -3957,7 +4131,12 @@ var Cross3v3View = BaseLayer.extend({
                 var row = columns[column] || 0;
                 var y = sources.length ? sources.reduce(function (total, point) { return total + point.y; }, 0) / sources.length :
                     top - 37 - row * stepY;
-                if (row === 0) NumUnit.initLabelYellow(x, top + 13, layer, 14, rounds[match.round - 1] + " · BO" + match.bestOf);
+                if (row === 0) {
+                    var tab = NumUnit.initImage(x, top + 5, "res/luan_vo/team_name_frame.png", layer);
+                    tab.setScaleX(stepX * .92 / tab.width);
+                    tab.setScaleY(19 / tab.height);
+                    NumUnit.initLabelYellow(x, top + 5, layer, 12, rounds[match.round - 1] + " · BO" + match.bestOf);
+                }
                 columns[column] = row + 1;
                 positions[match.id] = cc.p(x, y);
                 targets.push({x:x, y:y, width: stepX * .87, match:match});
@@ -3966,12 +4145,22 @@ var Cross3v3View = BaseLayer.extend({
                     var from = source.x + direction * stepX * .43;
                     var to = x - direction * stepX * .43;
                     var mid = (from + to) / 2;
-                    var ink = cc.color(190, 137, 112, 255);
+                    var ink = direction > 0 ? cc.color(213, 172, 249, 255) : cc.color(248, 188, 132, 255);
                     lineLayer.drawSegment(cc.p(from, source.y), cc.p(mid, source.y), 1, ink);
                     lineLayer.drawSegment(cc.p(mid, source.y), cc.p(mid, y), 1, ink);
-                    lineLayer.drawSegment(cc.p(mid, y), cc.p(to, y), 1, ink);
+                    lineLayer.drawSegment(cc.p(mid, y), cc.p(to, y), .55, ink);
+                    var delta = y >= source.y ? 1 : -1;
+                    for (var sy = source.y + delta * 10; Math.abs(sy - source.y) < Math.abs(y - source.y) - 7; sy += delta * 12) {
+                        lineLayer.drawSegment(cc.p(mid - 3, sy - 2), cc.p(mid + 2, sy + 2), .65, ink);
+                        lineLayer.drawSegment(cc.p(mid + 2, sy + 2), cc.p(mid - 2, sy + 4), .65, ink);
+                    }
                 });
-                var card = NumUnit.initImage(x, y, "#panel_normal_title.png", layer);
+                if (sources.length === 2 && match.side !== "center") {
+                    var sealX = x + (match.side === "right" ? 1 : -1) * stepX / 2;
+                    lineLayer.drawDot(cc.p(sealX, y), 6, cc.color(53, 32, 61, 255));
+                    NumUnit.initLabelYellow(sealX, y, layer, 9, "印");
+                }
+                var card = NumUnit.initImage(x, y, "res/luan_vo/guild_panel.png", layer);
                 card.setScaleX(stepX * .87 / card.width);
                 card.setScaleY(36 / card.height);
                 match.slots.forEach(function (slot, index) {
@@ -3979,15 +4168,19 @@ var Cross3v3View = BaseLayer.extend({
                         "Chờ " + slot.winnerOf;
                     if (name.length > 13) name = name.slice(0, 12) + "…";
                     var score = match.score[0] || match.score[1] ? " " + match.score[index] : "";
-                    NumUnit.initLabelYellow(x, y + (index ? -9 : 9), layer, 12, name + score);
+                    NumUnit.initLabel(x, y + (index ? -9 : 9), layer, 12, name + score, cc.color(43, 29, 33));
                 });
             });
         },
 
         openMatch: function (match) {
             this._activeMatch = match;
+            this._heldReplay = null;
+            this._pendingReplay = null;
             this._inventory = [];
+            this._draftScroll = null;
             this._mode = "detail";
+            this.showBracketChrome(false);
             this._room = null;
             this._selectedHeroes = [];
             this._filter = 0;
@@ -3996,7 +4189,44 @@ var Cross3v3View = BaseLayer.extend({
         },
 
         replay: function (game) {
-            Netty.shared().sendPackage("TournamentReplay", [this._activeMatch.id, game]);
+            if (!this._activeMatch || this._pendingReplay || this._loadingArenaReplay) return;
+            this._pendingReplay = {matchId:this._activeMatch.id, game:game};
+            var self = this, pending = this._pendingReplay;
+            this.scheduleOnce(function () {
+                if (self._pendingReplay !== pending) return;
+                self._pendingReplay = null;
+                self.arenaReplayFailed();
+            }, 12);
+            Netty.shared().sendPackage("TournamentReplay", [pending.matchId, game]);
+        },
+
+        updateLiveHeader: function (url) {
+            if (this._liveUrl === url) return;
+            this._liveUrl = url;
+            this._zoomButtons.forEach(function (btn, index) { btn.setPositionX(url ? 65 + index * 55 : WINSIZE.width - 189 + index * 73); });
+            var header = this._liveHeader;
+            header.removeAllChildren();
+            if (!url) return;
+            var x = WINSIZE.width - 145, y = WINSIZE.height - 39;
+            var hit = NumUnit.initButtonUI(UiRes.button_small_up, UiRes.button_small_down, function () {
+                if (cc.sys.openURL) cc.sys.openURL(url);
+                else NumUnit.prompts(url);
+            }, header);
+            hit.setPosition(x, y);
+            hit.setScale(.76);
+            hit.setOpacity(0);
+            header.addChild(hit);
+            var red = cc.color(255, 0, 45, 255);
+            this.drawPanel(header, x, y, 62, 40, red, red);
+            var play = new cc.DrawNode();
+            play.drawPoly([cc.p(x - 8, y - 10), cc.p(x + 11, y), cc.p(x - 8, y + 10)],
+                cc.color(255, 255, 255, 255), 0, cc.color(255, 255, 255, 255));
+            header.addChild(play);
+            var dot = new cc.DrawNode();
+            dot.setPosition(x + 37, y + 15);
+            dot.drawDot(cc.p(0, 0), 5, cc.color(255, 48, 47, 255));
+            header.addChild(dot, 5);
+            dot.runAction(cc.repeatForever(cc.sequence(cc.scaleTo(.65, .5), cc.scaleTo(.65, 1))));
         },
 
         renderDetail: function () {
@@ -4005,9 +4235,15 @@ var Cross3v3View = BaseLayer.extend({
             var layer = this._bracketLayer;
             var cx = WINSIZE.width / 2, top = WINSIZE.height - 110;
             layer.removeAllChildren();
+            var paper = NumUnit.initImage(cx, WINSIZE.height / 2 - 9, "res/luan_vo/guild_panel.png", layer);
+            paper.setScaleX((WINSIZE.width - 110) / paper.width);
+            paper.setScaleY((WINSIZE.height - 153) / paper.height);
+            var detailTitle = NumUnit.initImage(cx, top, "#panel_normal_title.png", layer);
+            detailTitle.setScaleX((WINSIZE.width - 140) / detailTitle.width);
+            detailTitle.setScaleY(34 / detailTitle.height);
             var names = match.slots.map(function (slot) { return slot.player ? "S" + slot.player.serverId + " · " + slot.player.name : "Chờ " + slot.winnerOf; });
             NumUnit.initLabelYellow(cx, top, layer, 26, match.id + " · BO" + match.bestOf);
-            NumUnit.initLabelYellow(cx, top - 38, layer, 24, names[0] + "   " + match.score.join("–") + "   " + names[1]);
+            this.drawSeries(layer, cx, top - 34, names, match.score);
             match.games.forEach(function (game, index) {
                 var x = cx + ((index % 4) - Math.min(3, match.games.length - 1) / 2) * 145;
                 var y = top - 96 - Math.floor(index / 4) * 52;
@@ -4015,15 +4251,8 @@ var Cross3v3View = BaseLayer.extend({
                 else button(layer, x, y, "Xem ván " + game.game, function () { self.replay(game.game); }).setScale(.85);
             });
             if (match.note) NumUnit.initLabelYellow(cx, 150, layer, 15, match.note);
-            if (match.scheduledAt) {
-                var date = new Date(match.scheduledAt + 7 * 3600000);
-                NumUnit.initLabelYellow(cx, top - 63, layer, 14,
-                    "Lịch đấu " + date.toISOString().slice(0, 16).replace("T", " ") + " (UTC+7)");
-            }
-            if (match.streamUrl) button(layer, cx + 175, 100, "Livestream", function () {
-                if (cc.sys.openURL) cc.sys.openURL(match.streamUrl);
-                else NumUnit.prompts(match.streamUrl);
-            });
+            if (match.waitingForReferee && match.winner < 0 && !match.canEnter)
+                NumUnit.initLabelYellow(cx, top - 64, layer, 15, "Chờ trọng tài mở phòng");
             if (match.canEnter && match.slots.every(function (slot) { return !!slot.player; }) && match.winner < 0)
                 button(layer, cx, 100, "Vào phòng", function () { self.requestRoom("join"); });
         },
@@ -4034,89 +4263,198 @@ var Cross3v3View = BaseLayer.extend({
             Netty.shared().sendPackage("TournamentRoom", [this._activeMatch.id, action, payload || {}]);
         },
 
+        draftCaption: function (room) {
+            var turn = room.draft.turn;
+            var seconds = Math.max(0, Math.ceil((room.draft.deadline - room.serverTime) / 1000));
+            return (turn[1] ? "Đỏ" : "Xanh") + " · " + (turn[0] === "ban" ? "Cấm " : "Chọn ") +
+                turn[2] + " tướng · " + seconds + "s";
+        },
+
         renderRoom: function () {
             var self = this, room = this._room, layer = this._bracketLayer;
             var cx = WINSIZE.width / 2, top = WINSIZE.height - 108;
+            var scrollPercent = 0;
+            if (this._draftScroll && this._draftScroll.getParent()) {
+                var overflow = this._draftScroll.getInnerContainerSize().height - this._draftScroll.height;
+                if (overflow > 0) scrollPercent = 100 * (1 + this._draftScroll.getInnerContainer().getPositionY() / overflow);
+            }
+            this._draftScroll = null;
             layer.removeAllChildren();
             var names = room.match.slots.map(function (slot) { return slot.player.name; });
-            NumUnit.initLabelYellow(cx, top, layer, 23, names[0] + "   " + room.score.join("–") + "   " + names[1]);
-            var labels = {waiting:"Phòng chờ", between:"Chờ ván tiếp theo", packing:"Đang chốt đội hình", locked:"Đã chốt đủ hai đội", running:"Backend đang xử lý combat", done:"Cặp đấu đã kết thúc", admin:"Chờ admin xử lý"};
-            if (room.observer) NumUnit.initLabelYellow(WINSIZE.width - 110, top, layer, 16, "Bạn là Trọng tài");
+            this._heroTargets = [];
+            this.drawPanel(layer, cx, (WINSIZE.height - 17) / 2, WINSIZE.width - 28, WINSIZE.height - 155,
+                cc.color(24, 18, 34, 247), cc.color(166, 126, 93, 190));
+            if (room.phase === "draft" || room.phase === "packing") {
+                this.drawPanel(layer, cx, top - 20, 79, 42, cc.color(54, 37, 42), cc.color(207, 160, 107));
+                NumUnit.initLabelYellow(cx, top - 20, layer, 25, room.score.join("–"));
+                NumUnit.initLabel(cx, top - 49, layer, 11, "BO" + room.match.bestOf + "  ·  VÁN " +
+                    (room.games.length + 1), cc.color(214, 183, 151));
+            } else this.drawSeries(layer, cx, top, names, room.score);
+            var labels = {waiting:"Phòng chờ", between:"Chờ ván tiếp theo", packing:"Chuẩn bị đội hình", locked:"Đã chốt đủ hai đội", running:"Backend đang xử lý combat", done:"Cặp đấu đã kết thúc", admin:"Chờ admin xử lý"};
+            if (room.observer) NumUnit.initLabelYellow(WINSIZE.width - 110, top + 29, layer, 15, "Trọng tài");
             if (room.note && room.phase !== "draft") NumUnit.initLabelYellow(cx, 150, layer, 15, room.note);
-            if (room.deadline && room.phase !== "draft") {
+            if (room.deadline && room.phase !== "draft" && room.phase !== "packing") {
                 var waitLeft = Math.max(0, Math.ceil((room.deadline - room.serverTime) / 1000));
                 var waitText = {ready:"Bên chưa sẵn sàng sẽ bị xử thua cặp sau ", lock:"Tự xử thua bên chưa khóa đội hình sau ", start:"Ván 1 tự chạy nếu Trọng tài chưa mở sau "}[room.deadlineKind];
                 if (waitText) NumUnit.initLabelYellow(cx, 175, layer, 15, waitText + waitLeft + "s");
             }
-            if (room.phase !== "draft") NumUnit.initLabelYellow(cx, top - 31, layer, 18, labels[room.phase] || "");
+            if (room.phase !== "draft" && !room.draft) NumUnit.initLabelYellow(cx, top - 35, layer, 18, labels[room.phase] || "");
             if (room.phase === "waiting" || room.phase === "between") {
                 NumUnit.initLabelYellow(cx, top - 67, layer, 18, "Xanh: " + (room.ready[0] ? "Sẵn sàng" : "Đang chờ") +
                     "     Đỏ: " + (room.ready[1] ? "Sẵn sàng" : "Đang chờ"));
-                var early = room.match.scheduledAt && room.match.scheduledAt > room.serverTime;
-                if (early) NumUnit.initLabelYellow(cx, top - 91, layer, 15, "Chưa đến giờ mở trận");
-                if (!early && room.side >= 0 && !room.ready[room.side])
+                if (room.side >= 0 && !room.ready[room.side])
                     button(layer, cx, top - 112, "Sẵn sàng", function () { self.requestRoom("ready"); });
             }
             if (room.canStart) button(layer, cx, 120, "Mở combat ván 1", function () { self.requestRoom("start"); });
 
             if (room.draft) {
-                function heroIcon(parent, x, y, id, quality) {
+                function heroIcon(parent, x, y, id, quality, size, dimmed) {
+                    size = size || 36;
                     var icon = Hero.getIconByHeroIdNQuality(id, quality || 1);
                     if (!icon) return;
                     var face = NumUnit.initImage(x, y, "#head_" + icon + ".jpg", parent);
-                    face.setScale(36 / face.width);
+                    face.setScale(size / face.width);
+                    face.setAnchorPoint(cc.p(.5, .5));
+                    face.setPosition(x, y);
+                    if (dimmed) face.setColor(cc.color(113, 107, 125));
                     if (quality) {
                         var frame = NumUnit.initImage(x, y, "#head_quality_" + quality + ".png", parent);
-                        frame.setScale(37 / frame.width);
+                        frame.setScale((size + 2) / frame.width);
+                    frame.setAnchorPoint(cc.p(.5, .5));
+                    frame.setPosition(x, y);
+                        if (dimmed) frame.setOpacity(165);
                     }
                 }
-                [0,1].forEach(function (side) {
-                    var x = WINSIZE.width * (side ? .73 : .27);
-                    NumUnit.initLabelYellow(x, top - 37, layer, 16, (side ? "ĐỎ" : "XANH") + " · " + room.draft.picks[side].length + "/5");
-                    room.draft.picks[side].forEach(function (id, i) { heroIcon(layer, x + (i - 2) * 42, top - 65, id); });
+                [0, 1].forEach(function (side) {
+                    var middle = Math.min(216, WINSIZE.width * .23);
+                    var width = Math.min(410, (WINSIZE.width - middle - 52) / 2);
+                    var x = cx + (side ? 1 : -1) * (width / 2 + middle / 2 + 8);
+                    var team = room.draft.picks[side];
+                    var ink = side ? cc.color(226, 134, 128) : cc.color(132, 183, 234);
+                    var draft = room.phase === "draft" || room.phase === "packing";
+                    var offset = draft ? 0 : 14;
+                    self.drawPanel(layer, x, top - 54 - offset, width, 110,
+                        side ? cc.color(61, 36, 48) : cc.color(28, 43, 68),
+                        side ? cc.color(145, 87, 93) : cc.color(77, 111, 149));
+                    var status = room.phase === "packing" ? (room.locked[side] ? "Đã chốt" : "Đang chuẩn bị") : team.length + "/5";
+                    var caption = (side ? "ĐỎ" : "XANH") + "  ·  " + (draft ? names[side] + "  ·  " : "") + status;
+                    NumUnit.initLabel(x, top - 16 - offset, layer, 17,
+                        caption.length > 32 ? caption.slice(0, 31) + "…" : caption, ink);
+                    var stride = (width - 42) / 5;
+                    var size = Math.min(58, stride - 8);
+                    var slotY = top - 65 - offset;
+                    for (var slot = 0; slot < 5; slot++) {
+                        var px = x + (slot - 2) * stride;
+                        if (team[slot]) {
+                            var qualities = room.draft.qualities;
+                            var quality = qualities && qualities[side] && qualities[side][slot];
+                            heroIcon(layer, px, slotY, team[slot], quality, size);
+                        } else {
+                            var slotArt = NumUnit.initImage(px, slotY, UiRes.kuang_ninja, layer);
+                            slotArt.setAnchorPoint(cc.p(.5, .5));
+                            slotArt.setPosition(px, slotY);
+                            slotArt.setScaleX((size + 2) / slotArt.width);
+                            slotArt.setScaleY((size + 2) / slotArt.height);
+                        }
+                    }
                     var bans = room.draft.bans.filter(function (entry) { return entry.side === side; });
-                    NumUnit.initLabelYellow(x, top - 95, layer, 14, "Đã cấm " + bans.length + "/5");
-                    bans.forEach(function (entry, i) { heroIcon(layer, x + (i - 2) * 42, top - 122, entry.heroId); });
+                    var banY = top - (side ? 102 : 76);
+                    var left = cx - middle / 2 + 6;
+                    self.drawPanel(layer, cx, banY, middle - 10, 23,
+                        side ? cc.color(58, 36, 47) : cc.color(29, 43, 65), ink);
+                    NumUnit.initLabel(left + 29, banY, layer, 10,
+                        (side ? "Đỏ " : "Xanh ") + bans.length + "/5", ink);
+                    var banStep = (middle - 66) / 5;
+                    bans.forEach(function (entry, i) {
+                        heroIcon(layer, left + 57 + (i + .5) * banStep, banY, entry.heroId, null,
+                            Math.min(18, banStep - 3), true);
+                    });
                 });
                 var turn = room.draft.turn;
                 if (turn) {
-                    var countdown = Math.max(0, Math.ceil((room.draft.deadline - room.serverTime) / 1000));
-                    NumUnit.initLabelYellow(cx, top - 155, layer, 16,
-                        (turn[1] ? "Đỏ" : "Xanh") + " · " + (turn[0] === "ban" ? "Cấm " : "Chọn ") + turn[2] + " tướng · " + countdown + "s");
+                    self.drawPanel(layer, cx, top - 133, Math.min(320, WINSIZE.width * .44), 24,
+                        cc.color(51, 36, 53), cc.color(158, 112, 92));
+                    self._draftTimerLabel = NumUnit.initLabel(cx, top - 133, layer, 15, self.draftCaption(room), cc.color(249, 208, 151));
                     if (room.side >= 0) {
                         var inventory = this._inventory.filter(function (hero) { return !self._filter || hero.position === self._filter; });
-                        var pageSize = 16;
-                        var lastPage = Math.max(0, Math.ceil(inventory.length / pageSize) - 1);
-                        this._page = Math.min(this._page, lastPage);
+                        inventory.sort(function (a, b) {
+                            return b.quality - a.quality || b.level - a.level || a.id - b.id;
+                        });
                         var canChoose = room.side === turn[1];
                         var filterNames = ["Tất cả", "Hàng trước", "Hàng giữa", "Hàng sau"];
+                        var filterWidth = Math.min(125, WINSIZE.width * .16);
+                        var width = Math.min(710, WINSIZE.width - filterWidth - 83), bottom = 109;
+                        var height = Math.max(54, top - 155 - bottom);
+                        var left = cx - (width + filterWidth + 18) / 2;
+                        var filterX = left + width + 18 + filterWidth / 2;
+                        var filterGap = Math.min(37, height / 4);
                         filterNames.forEach(function (name, index) {
-                            button(layer, cx + (index - 1.5) * 124, top - 182, name, function () {
-                                self._filter = index;
-                                self._page = 0;
-                                self.renderRoom();
-                            }).setScale(self._filter === index ? .76 : .65);
+                            var y = bottom + height - (index + .5) * filterGap;
+                            var active = self._filter === index;
+                            self.drawPanel(layer, filterX, y, filterWidth, filterGap - 5,
+                                active ? cc.color(104, 69, 65) : cc.color(43, 35, 55),
+                                active ? cc.color(227, 177, 115) : cc.color(117, 92, 103));
+                            NumUnit.initLabel(filterX, y, layer, 13, name, cc.color(242, 224, 204));
+                            self._heroTargets.push({filter:index,x:filterX,y:y,width:filterWidth,size:filterGap-5});
                         });
-                        inventory.slice(this._page * pageSize, (this._page + 1) * pageSize).forEach(function (hero, index) {
-                            var x = cx + (index % 8 - 3.5) * 75;
-                            var y = top - 223 - Math.floor(index / 8) * 55;
-                            heroIcon(layer, x, y, hero.id, hero.quality);
-                            NumUnit.initLabelYellow(x, y - 23, layer, 10, "Lv." + hero.level);
+                        self.drawPanel(layer, left + width / 2, bottom + height / 2, width + 10, height + 8,
+                            cc.color(31, 40, 60), cc.color(113, 99, 107));
+                        var scroll = ccui.ScrollView.create();
+                        scroll.setDirection(ccui.ScrollView.DIR_VERTICAL);
+                        scroll.setTouchEnabled(true);
+                        scroll.setAnchorPoint(cc.p(0, 0));
+                        scroll.setSize(cc.size(width, height));
+                        scroll.setPosition(left, bottom);
+                        var gap = Math.min(119, width / 5);
+                        var tileSize = Math.min(91, gap - 14);
+                        var rowHeight = tileSize + 26;
+                        var innerHeight = Math.max(height, Math.ceil(inventory.length / 5) * rowHeight + 9);
+                        scroll.setInnerContainerSize(cc.size(width, innerHeight));
+                        layer.addChild(scroll);
+                        self._draftScroll = scroll;
+                        inventory.forEach(function (hero, index) {
+                            var x = width / 2 + (index % 5 - 2) * gap;
+                            var y = innerHeight - 7 - tileSize / 2 - Math.floor(index / 5) * rowHeight;
                             var selected = self._selectedHeroes.indexOf(hero.id) >= 0;
-                            var eligible = canChoose && room.draft.available.indexOf(hero.id) >= 0;
-                            if (eligible) {
-                                button(layer, x + 20, y + 13, selected ? "✓" : "+", function () {
-                                    var current = self._selectedHeroes.indexOf(hero.id);
-                                    if (current >= 0) self._selectedHeroes.splice(current, 1);
+                            var ban = room.draft.bans.filter(function (item) { return item.heroId === hero.id; })[0];
+                            var used = room.draft.used.indexOf(hero.id) >= 0;
+                            var picked = room.draft.picks[0].indexOf(hero.id) >= 0 ? "XANH" :
+                                room.draft.picks[1].indexOf(hero.id) >= 0 ? "ĐỎ" : "";
+                            var icon = Hero.getIconByHeroIdNQuality(hero.id, hero.quality);
+                            if (!icon) return;
+                            if (canChoose && room.draft.available.indexOf(hero.id) >= 0) {
+                                var sprite = "#head_" + icon + ".jpg";
+                                var face = NumUnit.initButtonUI(sprite, sprite, function () {
+                                    if (self._pendingRoom || self._room.phase !== "draft" || self._room.draft.step !== room.draft.step) return;
+                                    var i = self._selectedHeroes.indexOf(hero.id);
+                                    if (i >= 0) self._selectedHeroes.splice(i, 1);
                                     else if (self._selectedHeroes.length < turn[2]) self._selectedHeroes.push(hero.id);
                                     self.renderRoom();
-                                }).setScale(.32);
-                            } else if (room.draft.used.indexOf(hero.id) >= 0 || room.draft.bans.some(function (item) {return item.heroId === hero.id;})) {
-                                NumUnit.initLabelYellow(x, y, layer, 12, room.draft.used.indexOf(hero.id) >= 0 ? "印" : "CẤM");
+                                }, self);
+                                face.setPosition(x, y);
+                                face.setScale(tileSize / face.width);
+                                scroll.addChild(face);
+                                var frame = NumUnit.initImage(x, y, "#head_quality_" + hero.quality + ".png", scroll);
+                                frame.setScale((tileSize + 2) / frame.width);
+                            } else {
+                                heroIcon(scroll, x, y, hero.id, hero.quality, tileSize, used || !!ban || !!picked);
+                            }
+                            if (UiRes.team_level) {
+                                var level = NumUnit.initImage(x - tileSize * .31, y - tileSize * .34, UiRes.team_level, scroll);
+                                level.setScale(.64);
+                            }
+                            NumUnit.initLabelYellow(x - tileSize * .31, y - tileSize * .34, scroll, 11, String(hero.level));
+                            var title = hero.name || (Config.hero[hero.id] && Config.hero[hero.id].name) || "";
+                            NumUnit.initLabel(x, y - tileSize / 2 - 8, scroll, 11,
+                                title.length > 13 ? title.slice(0, 12) + "…" : title, cc.color(231, 220, 216));
+                            if (ban) {
+                                var badge = NumUnit.initImage(x, y + tileSize / 3, "res/luan_vo/tean_ban" + (ban.side + 1) + ".png", scroll);
+                                badge.setScale(tileSize * .88 / badge.width);
+                            } else if (used || picked || selected) {
+                                NumUnit.initLabelYellow(x, y + tileSize / 4, scroll, 16, used ? "印" : picked || "✓");
                             }
                         });
-                        if (this._page > 0) button(layer, cx - 328, top - 263, "‹", function () { self._page--; self.renderRoom(); }).setScale(.45);
-                        if (this._page < lastPage) button(layer, cx + 328, top - 263, "›", function () { self._page++; self.renderRoom(); }).setScale(.45);
+                        scroll.jumpToPercentVertical(Math.max(0, Math.min(100, scrollPercent)));
                         if (canChoose && turn[0] === "ban" && room.draft.available.length === 0)
                             button(layer, cx, 80, "Bỏ qua cấm", function () {
                                 self.requestRoom("choose", {step: room.draft.step, ids: []});
@@ -4128,30 +4466,202 @@ var Cross3v3View = BaseLayer.extend({
                     }
                 }
             }
+            if (room.phase === "packing" && room.draft) this.renderPreparation(layer, cx, top);
             if (room.phase !== "draft" && room.games.length && !room.games[room.games.length - 1].walkover)
                 button(layer, cx + 150, 70, "Xem ván " + room.games.length, function () { self.replay(room.games.length); }).setScale(.85);
         },
 
-        playReplay: function (history) {
-            var data = getVideoBattleRecData(history.fight_data);
-            if (!data || !data.bm) { NumUnit.prompts(LANSTR.ERROR_REPLAYDATA); return; }
-            var bm = BattleModle.getModleFromString(data.bm.split(","));
-            bm.atk_name = history.atk_name;
-            bm.def_name = history.def_name;
-            bm.atk_lv = history.atk_lv;
-            bm.def_lv = history.def_lv;
-            bm.isAttackAvatar = Netty.isHistoryAttacker(history);
-            var replay = new ReplayData(bm);
-            replay.data = data;
-            bm.replaydata = replay;
-            bm.result = data.result;
-            bm.resetForReplay();
-            var bg = "res/background/bg_1001.jpg";
-            Loading.loadRes(NumUnit.prepareLoadingRes([bm]).concat(res_fight, [bg]), function () {
-                var scene = new ReplayScene();
-                scene.setReplayData(bg, bm, false);
-                cc.director.runScene(scene);
+        preparationCaption: function (room) {
+            var seconds = room.deadline ? Math.max(0, Math.ceil((room.deadline - room.serverTime) / 1000)) : null;
+            return "CHUẨN BỊ ĐỘI HÌNH" + (seconds === null ? "" : "  ·  " + seconds + " giây");
+        },
+
+        renderPreparation: function (layer, cx, top) {
+            var self = this, room = this._room;
+            var remaining = room.deadline ? Math.max(0, Math.ceil((room.deadline - room.serverTime) / 1000)) : null;
+            var width = Math.min(735, WINSIZE.width - 80);
+            this.drawPanel(layer, cx, top - 153, width, 31, cc.color(51, 36, 53), cc.color(158, 112, 92));
+            this._prepTimerLabel = NumUnit.initLabel(cx, top - 153, layer, 16,
+                this.preparationCaption(room), cc.color(249, 208, 151));
+            if (room.side < 0 || room.locked[room.side] || remaining === 0) {
+                if (room.side >= 0 && room.locked[room.side])
+                    NumUnit.initLabelYellow(cx, top - 196, layer, 15, "Đã chốt đội hình · Đang chờ");
+                return;
+            }
+
+            var ids = room.draft.picks[room.side];
+            if (ids.indexOf(this._prepHero) < 0) this._prepHero = ids[0];
+            var gap = width / 5;
+            var tileY = top - 220;
+            ids.forEach(function (id, index) {
+                var config = Config.hero[id], label = config ? config.name : String(id);
+                var x = cx + (index - (ids.length - 1) / 2) * gap;
+                var active = self._prepHero === id;
+                self.drawPanel(layer, x, tileY, gap - 8, 84,
+                    active ? cc.color(69, 45, 59) : cc.color(32, 29, 48),
+                    active ? cc.color(238, 183, 108) : cc.color(100, 81, 112));
+                var owned = self._inventory.filter(function (hero) { return hero.id === id; })[0];
+                var quality = owned ? owned.quality : 1;
+                var icon = Hero.getIconByHeroIdNQuality(id, quality);
+                if (icon) {
+                    var portrait = NumUnit.initImage(x, tileY + 10, "#head_" + icon + ".jpg", layer);
+                    portrait.setScale(48 / portrait.width);
+                    if (owned) {
+                        var frame = NumUnit.initImage(x, tileY + 10, "#head_quality_" + quality + ".png", layer);
+                        frame.setScale(50 / frame.width);
+                    }
+                }
+                NumUnit.initLabel(x, tileY - 27, layer, 12,
+                    label.length > 14 ? label.slice(0, 13) + "…" : label, cc.color(245, 225, 202));
+                self._heroTargets.push({prepId:id, x:x, y:tileY, width:gap-8, size:84});
             });
+
+            var selected = Config.hero[this._prepHero];
+            var actionY = Math.max(146, top - 323);
+            this.drawPanel(layer, cx, actionY - 5, Math.min(width, 515), 82,
+                cc.color(37, 29, 47), cc.color(124, 92, 104));
+            NumUnit.initLabel(cx, actionY + 19, layer, 14, "Trang bị · " +
+                (selected ? selected.name : ""), cc.color(221, 186, 151));
+            ["Bí Kíp", "Ngọc", "Nhẫn Cụ"].forEach(function (label, index) {
+                button(layer, cx + (index - 1) * 126, actionY - 12, label, function () {
+                    self.openPreparationEditor(index);
+                }).setScale(.73);
+            });
+            button(layer, cx, actionY - 67, "Chốt đội hình", function () {
+                if (self.canEditPreparation()) self.requestRoom("lock", {confirmPreparation:true});
+            }).setScale(.93);
+        },
+
+        canEditPreparation: function () {
+            var room = this._room;
+            return room && room.phase === "packing" && room.side >= 0 && !room.locked[room.side] &&
+                (!room.deadline || room.deadline > room.serverTime) &&
+                !(this._prepEditor && this._prepEditor.getParent());
+        },
+
+        openPreparationEditor: function (kind) {
+            if (!this.canEditPreparation()) return;
+            var room = this._room;
+            var ids = room.draft.picks[room.side];
+            var selectedHero = gamePlayer.findHeroById(this._prepHero);
+            if (!selectedHero || ids.indexOf(this._prepHero) < 0) {
+                NumUnit.prompts("Chưa tải được tướng. Hãy chọn lại tướng để chỉnh trang bị.");
+                return;
+            }
+            var heroes = ids.map(function (id) { return gamePlayer.findHeroById(id); }).filter(Boolean);
+            var index = heroes.indexOf(selectedHero);
+            if (index < 0) { heroes.push(selectedHero); index = heroes.length - 1; }
+            var editor;
+            if (kind === 0) {
+                editor = new SchoolView();
+                editor._select = SchoolConst.TAB_INLAY;
+                var show = editor.onShowLayer, selected = heroes[index], initialized = false;
+                editor.onShowLayer = function () {
+                    show.apply(this, arguments);
+                    if (!initialized && this._inlayLayer) {
+                        this._inlayLayer.onSelectHero(null, selected);
+                        initialized = true;
+                    }
+                };
+            } else if (kind === 1) editor = new PartnerGem(heroes, index);
+            else editor = new PartnerNinjaTool(heroes, index);
+            var owner = this;
+            var close = editor.onClose;
+            var exit = editor.onExit;
+            var restore = function () {
+                if (owner._prepEditor === editor) owner._prepEditor = null;
+            };
+            editor.onClose = function () {
+                try { return close.apply(this, arguments); }
+                finally { restore(); }
+            };
+            editor.onExit = function () {
+                try { return exit.apply(this, arguments); }
+                finally { restore(); }
+            };
+            this._prepEditor = editor;
+            try { this.addChild(editor, 100); }
+            catch (error) {
+                restore();
+                cc.log("Luận Võ: " + error);
+                NumUnit.prompts("Không mở được trang bị. Hãy thử lại.");
+            }
+        },
+
+        closeExpiredPreparationEditor: function () {
+            var editor = this._prepEditor;
+            if (!editor || !editor.getParent()) return;
+            var room = this._room;
+            if (room.phase !== "packing" || room.locked[room.side] ||
+                room.deadline && room.deadline <= room.serverTime) {
+                editor.onClose();
+                this._prepEditor = null;
+            }
+        },
+
+        showArenaLoading: function (canRetry) {
+            var self = this, layer = this._bracketLayer;
+            layer.removeAllChildren();
+            var cx = WINSIZE.width / 2, cy = WINSIZE.height / 2;
+            this.drawPanel(layer, cx, cy, Math.min(450, WINSIZE.width - 50), 122,
+                cc.color(34, 24, 43), cc.color(180, 132, 91));
+            NumUnit.initLabelYellow(cx, cy + 20, layer, 20, canRetry ? "Chưa tải được cảnh đấu" : "Đang tải cảnh đấu Arena…");
+            if (canRetry) button(layer, cx, cy - 22, "Tải lại", function () {
+                self.showArenaLoading(false);
+                self.replay(self._heldReplay);
+            }).setScale(.8);
+        },
+
+        arenaReplayFailed: function () {
+            this._loadingArenaReplay = false;
+            if (this._mode === "bracket") return;
+            if (this._heldReplay) this.showArenaLoading(true);
+            else NumUnit.prompts("Không tải được phát lại. Hãy thử lại.");
+        },
+
+        playReplay: function (history) {
+            var self = this, match = this._activeMatch, finished = false;
+            function fail(error) {
+                if (finished) return;
+                finished = true;
+                if (error) cc.log("Luận Võ Arena: " + error);
+                if (self._activeMatch === match) self.arenaReplayFailed();
+                else self._loadingArenaReplay = false;
+            }
+            this._loadingArenaReplay = true;
+            this.scheduleOnce(function () { fail("timeout"); }, 18);
+            try {
+                var data = getVideoBattleRecData(history.fight_data);
+                if (!data || !data.bm) throw new Error("Replay data unavailable");
+                var bm = BattleModle.getModleFromString(data.bm.split(","));
+                bm.atk_name = history.atk_name;
+                bm.def_name = history.def_name;
+                bm.atk_lv = history.atk_lv;
+                bm.def_lv = history.def_lv;
+                bm.isAttackAvatar = Netty.isHistoryAttacker(history);
+                var replay = new ReplayData(bm);
+                replay.data = data;
+                bm.replaydata = replay;
+                bm.result = data.result;
+                bm.resetForReplay();
+                bm._luanVoReturn = {matchId:match.id, fromRoom:this._mode === "room"};
+                var bg = "res/background/bg_1001.jpg";
+                var resources = Loading.filterRes(NumUnit.prepareLoadingRes([bm]).concat(res_fight, [bg]));
+                function enter(error) {
+                    if (finished) return;
+                    if (error) { fail(error); return; }
+                    if (!self.getParent() || self._activeMatch !== match) { fail(); return; }
+                    try {
+                        var scene = new ReplayScene();
+                        scene.setReplayData(bg, bm, false);
+                        cc.director.runScene(scene);
+                        finished = true;
+                        self._loadingArenaReplay = false;
+                    } catch (error) { fail(error); }
+                }
+                if (resources.length) cc.loader.load(resources, function () {}, enter);
+                else enter();
+            } catch (error) { fail(error); }
         },
 
         onExit: function () {
@@ -4159,6 +4669,19 @@ var Cross3v3View = BaseLayer.extend({
             this._super();
         }
     });
+
+    var closeArenaReplay = PkVideoEndView.prototype.onClose;
+    PkVideoEndView.prototype.onClose = function () {
+        var resume = this._bm && this._bm._luanVoReturn;
+        if (!resume) return closeArenaReplay.apply(this, arguments);
+        if (this._returningToLuanVo) return;
+        this._returningToLuanVo = true;
+        Loading.loadRes(res_main, function () {
+            var main = new MainScene();
+            cc.director.runScene(main);
+            main.addChild(new LuanVoBracketView(resume), 9998);
+        });
+    };
 
     CrossBattleChoose.prototype.init_bg = function () {
         var self = this;
@@ -5408,13 +5931,13 @@ var Cross3v3View = BaseLayer.extend({
         var canHeight = treeSize.height * treeScale * .135;
         var hitArea = cc.Sprite.create();
         hitArea.setContentSize(cc.size(canWidth, canHeight));
-        var water = new cc.MenuItemSprite(hitArea, null, function () { draw(1); }, root);
+        var water = new cc.MenuItemSprite(hitArea, null, function () { draw(100); }, root);
         water.setPosition(center + treeSize.width * treeScale * (.29 - .5),
             positionY + treeSize.height * treeScale * (.105 - .5));
         var countText = NumUnit.initLabelYellow(treeSize.width * .304, treeSize.height * .107, tree,
             Math.round(Math.min(18, size * .035) / treeScale), "…");
         NumUnit.initLabelYellow(treeSize.width * .304, treeSize.height * .075, tree,
-            Math.round(Math.min(13, size * .025) / treeScale), "Tưới");
+            Math.round(Math.min(13, size * .025) / treeScale), "Tưới 100 lần");
         var close = menuButton("Đóng", width - 75, height - 32, function () {
             if (busy) return;
             dispatcher.removeListenerByDelgate(root, "LocalChristmasTreeInfo");
@@ -5430,20 +5953,20 @@ var Cross3v3View = BaseLayer.extend({
         results.setPosition(bulkX, positionY + size * .25);
         root.addChild(results, 9);
         function quickWater(count, side) {
-            var control = menuButton(count + " lần", 0, 21, function () { draw(count); });
+            var control = menuButton("Tưới " + count + " lần", 0, 21, function () { draw(count); });
             var buttonWidth = Math.min(96, width * .13);
             control.setScale(Math.min(buttonWidth / control.width, 38 / control.height));
             control.setPosition(water.x + side * (buttonWidth / 2 + 5), 21);
             return control;
         }
-        var waterTen = quickWater(10, -1);
-        var waterHundred = quickWater(100, 1);
+        var waterOne = quickWater(1, -1);
+        var waterTen = quickWater(10, 1);
         function setWaterControls(enabled) {
-            water.setEnabled(enabled && remaining > 0);
+            water.setEnabled(enabled && remaining >= 100);
+            waterOne.setEnabled(enabled && remaining >= 1);
             waterTen.setEnabled(enabled && remaining >= 10);
-            waterHundred.setEnabled(enabled && remaining >= 100);
         }
-        var menu = cc.Menu.create(water, waterTen, waterHundred, close);
+        var menu = cc.Menu.create(water, waterOne, waterTen, close);
         menu.setPosition(0, 0);
         root.addChild(menu, 20);
 
@@ -6131,16 +6654,22 @@ var Cross3v3View = BaseLayer.extend({
 
         var now = Cache.getServerTime();
         var ticks = this._lastBeat == 0 ? 1 : Math.floor((now - this._battlePause - this._lastBeat) / _battle_check_time);
-        ticks = Math.min(ticks, 3);
         if (ticks > 0) {
-            this._pendingBattleSteps = (this._pendingBattleSteps || 0) + this.speedSteps(ticks);
-            this._lastBeat = this._lastBeat == 0 ? now : this._lastBeat + _battle_check_time * ticks;
+            var admitted = Math.min(ticks, 3);
+            var due = (this._pendingBattleSteps || 0) + this.speedSteps(admitted);
+            // Rebase wall time under load. Simulation ticks still advance in sequence.
+            this._pendingBattleSteps = Math.min(due, 9);
+            if (this._lastBeat === 0) this._lastBeat = now;
+            else if (ticks > admitted || due > 9) this._lastBeat = now - this._battlePause;
+            else this._lastBeat += _battle_check_time * admitted;
         }
 
         var beginning = Date.now();
+        this._paceSteps = 0;
         for (var steps = 0; this._pendingBattleSteps > 0 && steps < 4; steps++) {
             if (steps && Date.now() - beginning >= 12) break;
             this._pendingBattleSteps--;
+            this._paceSteps++;
             if (this.onProcess()) {
                 this._pendingBattleSteps = 0;
                 return;
@@ -6152,6 +6681,7 @@ var Cross3v3View = BaseLayer.extend({
         var originalBegin = BattleManager.prototype.beginWithModle;
         BattleManager.prototype.beginWithModle = function () {
             this._pendingBattleSteps = 0;
+            this._paceSteps = 0;
             return originalBegin.apply(this, arguments);
         };
     }
@@ -6165,23 +6695,37 @@ var Cross3v3View = BaseLayer.extend({
         } finally { updated = Date.now() - start; }
     };
     usesBudget = usesBudget || installBudget;
-    layer.render = function () {
+    layer.render = function (dt) {
         var start = Date.now();
         updated = 0;
-        var result = originalRender.apply(this, arguments);
+        var manager = BattleManager.shared();
+        var paced = installBudget && highSpeed() && !manager.isCheck() && manager._isRunning;
+        var result;
+        if (paced && dt > 0) {
+            var ratio = this._paceManager === manager && this._paceRatio !== undefined ? this._paceRatio : 1;
+            this._paceManager = manager;
+            manager._paceSteps = 0;
+            result = originalRender.call(this, dt * ratio);
+            var achieved = Math.min(1, manager._paceSteps * _battle_check_time / 1000 / dt);
+            this._paceRatio = ratio * 0.75 + achieved * 0.25;
+        } else {
+            this._paceManager = null;
+            this._paceRatio = 1;
+            result = originalRender.apply(this, arguments);
+        }
         var end = Date.now();
-        var speed = highSpeed() ? 3 : BattleManager.shared().getSpeed();
+        var speed = manager.getSpeed();
         var stats = this._mobileFpsSample;
         if (!stats || stats.speed !== speed) {
             stats = this._mobileFpsSample = { speed: speed, since: end, frames: 0, render: 0, sim: 0, pending: 0 };
-            cc.log("[BattleFPS230] active speed=" + speed + " budget=" + usesBudget);
+            cc.log("[BattleFPS269] active speed=" + speed + " budget=" + usesBudget);
         }
         stats.frames++;
         stats.render += end - start;
         stats.sim += updated;
         stats.pending = Math.max(stats.pending, BattleManager.shared()._pendingBattleSteps || 0);
         if (end - stats.since >= 3000) {
-            cc.log("[BattleFPS230] speed=" + speed +
+            cc.log("[BattleFPS269] speed=" + speed +
                 " fps=" + Math.round(1000 * stats.frames / (end - stats.since)) +
                 " avgRenderMs=" + (stats.render / stats.frames).toFixed(2) +
                 " avgSimMs=" + (stats.sim / stats.frames).toFixed(2) +
@@ -6191,5 +6735,110 @@ var Cross3v3View = BaseLayer.extend({
         }
         return result;
     };
-    cc.log("[BattleFPS230] hook loaded; budget=" + usesBudget);
+    cc.log("[BattleFPS269] hook loaded; budget=" + usesBudget);
+})();
+
+
+(function () {
+    if (typeof FightLayer === "undefined" || typeof BattleManager === "undefined" ||
+        typeof FightDataManager === "undefined") return;
+    var layer = FightLayer.prototype;
+    if (layer._profileCallbacks270) return;
+    layer._profileCallbacks270 = true;
+    var manager = BattleManager.prototype, presenter = FightDataManager.prototype;
+    var update = manager.update, render = layer.render;
+    var active = null, depth = 0, inUpdate = false;
+    var handlers = {
+        onCastHandler: "cast", onHurtHandler: "hurt", onHealHandler: "hp",
+        onBuffStartHandler: "buff", onBuffEndHandler: "buff", onNewUnitJoin: "join",
+        onBreakCastHandler: "interrupt"
+    };
+    Object.keys(handlers).forEach(function (name) {
+        var original = presenter[name];
+        if (typeof original !== "function") return;
+        var series = handlers[name];
+        presenter[name] = function () {
+            if (!active || !inUpdate || depth) return original.apply(this, arguments);
+            var sample = active, start = Date.now();
+            depth++;
+            try { return original.apply(this, arguments); }
+            finally {
+                depth--;
+                var elapsed = Date.now() - start;
+                sample.callbackMs += elapsed;
+                sample.byType[series] = (sample.byType[series] || 0) + elapsed;
+                sample.counts[series] = (sample.counts[series] || 0) + 1;
+            }
+        };
+    });
+    manager.update = function () {
+        if (!active) return update.apply(this, arguments);
+        var sample = active, start = Date.now();
+        var previous = inUpdate;
+        inUpdate = true;
+        try { return update.apply(this, arguments); }
+        finally { inUpdate = previous; sample.updateMs += Date.now() - start; }
+    };
+    layer.render = function () {
+        var current = BattleManager.shared();
+        var speed = current.getSpeed();
+        if (speed !== 3 || !current._isRunning || current.isCheck()) {
+            this._callbackSample270 = null;
+            return render.apply(this, arguments);
+        }
+        var start = Date.now();
+        var sample = this._callbackSample270 || (this._callbackSample270 = {
+            since: start, frames: 0, updateMs: 0, callbackMs: 0, byType: {}, counts: {}
+        });
+        var previous = active;
+        active = sample;
+        try { return render.apply(this, arguments); }
+        finally {
+            active = previous;
+            sample.frames++;
+            var now = Date.now();
+            if (now - sample.since >= 3000) {
+                var categories = Object.keys(sample.counts).map(function (key) {
+                    return key + "=" + sample.byType[key] + "ms/" + sample.counts[key];
+                });
+                cc.log("[BattleProfile270] fps=" + Math.round(sample.frames * 1000 / (now - sample.since)) +
+                    " updateMs/frame=" + (sample.updateMs / sample.frames).toFixed(2) +
+                    " callbacksMs/frame=" + (sample.callbackMs / sample.frames).toFixed(2) +
+                    " otherMs/frame=" + (Math.max(0, sample.updateMs - sample.callbackMs) / sample.frames).toFixed(2) +
+                    " " + categories.join(" "));
+                this._callbackSample270 = null;
+            }
+        }
+    };
+    cc.log("[BattleProfile270] ready");
+})();
+
+
+(function () {
+    if (typeof BattleUnit === "undefined" || BattleUnit.prototype._debuffScan271) return;
+    var controls = Object.create(null), penalties = Object.create(null);
+    [SKILLEFFECT_STUN, SKILLEFFECT_SILENT, SKILLEFFECT_CHARM, SKILLEFFECT_DISSAPEAR, SKILLEFFECT_STOP, SKILLEFFECT_FROG, SKILLEFFECT_SHUILAO, SKILLEFFECT_SLEEP, SKILLEFFECT_BUFFLIMIT].forEach(function (type) { controls[type] = true; });
+    [SKILLEFFECT_MAXHP, SKILLEFFECT_MAGICDMGUP, SKILLEFFECT_PHYSICDMGUP, SKILLEFFECT_PHYSICDEFUP, SKILLEFFECT_MAGICDEFUP, SKILLEFFECT_ATTACKSPEEDUP, SKILLEFFECT_PHYSICDAMAGEABSORB, SKILLEFFECT_MAGICDAMAGEABSORB, SKILLEFFECT_HEALEFFECT, SKILLEFFECT_POWERLIMIT].forEach(function (type) { penalties[type] = true; });
+    function hasDebuff(unit, extended) {
+        var actions = unit.actions;
+        if (!actions.length) return null;
+        for (var i = 0; i < actions.length; i++) {
+            var skill = actions[i].skill, effects = skill.effects;
+            for (var j = 0; j < effects.length; j++) {
+                var effect = effects[j];
+                if (!effect.isactive || !(effect.removePoint < _timemax_)) continue;
+                var status = Number(effect.buffStatus);
+                if (!(controls[status] || (extended && status === SKILLEFFECT_STUN_EXT) ||
+                    (penalties[status] && effect.buffEffVal < 0) ||
+                    (status === SKILLEFFECT_DAMAGECOPY && effect.feedbackTarget === unit))) continue;
+                if (skill.config.getValByKey("type") != SKILLTYPE_PASSIVE) return true;
+                break;
+            }
+        }
+        return false;
+    }
+    BattleUnit.prototype.hasDebuff = function () { return hasDebuff(this, false); };
+    BattleUnit.prototype.hasDebuffEx = function () { return hasDebuff(this, true); };
+    BattleUnit.prototype._debuffScan271 = true;
+    cc.log("[BattleProfile271] live debuff scan optimized");
 })();
